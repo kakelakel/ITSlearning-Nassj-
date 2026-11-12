@@ -1,0 +1,55 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "itslearning",
+        "description": "Log in with the student's Skolfederation credentials.",
+        "data": {
+          "site_url": "itslearning address",
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate",
+        "description": "The login for {username} stopped working. Enter the password again.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Login failed. Check username and password.",
+      "cannot_connect": "Could not reach itslearning or the login service.",
+      "unknown": "Unexpected error, see the log."
+    },
+    "abort": {
+      "already_configured": "Account already configured.",
+      "reauth_successful": "Re-authentication successful."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "upcoming_tasks": {
+        "name": "Upcoming tasks"
+      },
+      "due_tomorrow": {
+        "name": "Due by tomorrow"
+      },
+      "overdue_tasks": {
+        "name": "Overdue tasks"
+      },
+      "next_deadline": {
+        "name": "Next deadline"
+      },
+      "unread_notifications": {
+        "name": "Unread notifications"
+      }
+    },
+    "calendar": {
+      "deadlines": {
+        "name": "Deadlines"
+      }
+    }
+  }
+}

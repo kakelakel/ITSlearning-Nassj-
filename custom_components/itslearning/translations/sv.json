@@ -1,0 +1,55 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "itslearning",
+        "description": "Logga in med elevens uppgifter från Skolfederationen (samma som på skoldatorn).",
+        "data": {
+          "site_url": "Adress till itslearning",
+          "username": "Användarnamn",
+          "password": "Lösenord"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Logga in igen",
+        "description": "Inloggningen för {username} slutade fungera. Ange lösenordet igen.",
+        "data": {
+          "password": "Lösenord"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Inloggningen misslyckades. Kontrollera användarnamn och lösenord.",
+      "cannot_connect": "Kunde inte nå itslearning eller inloggningstjänsten.",
+      "unknown": "Oväntat fel, se loggen."
+    },
+    "abort": {
+      "already_configured": "Kontot är redan tillagt.",
+      "reauth_successful": "Inloggningen är uppdaterad."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "upcoming_tasks": {
+        "name": "Kommande uppgifter"
+      },
+      "due_tomorrow": {
+        "name": "Uppgifter till i morgon"
+      },
+      "overdue_tasks": {
+        "name": "Försenade uppgifter"
+      },
+      "next_deadline": {
+        "name": "Nästa deadline"
+      },
+      "unread_notifications": {
+        "name": "Olästa notiser"
+      }
+    },
+    "calendar": {
+      "deadlines": {
+        "name": "Deadlines"
+      }
+    }
+  }
+}
