@@ -41,6 +41,7 @@ USER_AGENT = (
 MAX_STEPS = 25
 FEDERATION_HINT = "Skolfederation"
 PASSWORD_AUTHMECH_HINTS = ("anv%c3%a4ndarnamn", "användarnamn", "username", "password", "l%c3%b6senord")
+APP_REDIRECT_RE = re.compile(re.escape(REDIRECT_URI.split("://")[0]) + r":(?://|\\/\\/)[^'\"\s<>]*")
 # Scopes are space separated. First the ones we need, then broader/narrower fallbacks.
 SCOPE_CANDIDATES = (
     "Tasks Notifications Person Courses Calendar",
@@ -351,6 +352,13 @@ class ItslearningClient:
                     text = await resp.text(errors="replace")
                     if resp.status >= 500:
                         raise ItslearningConnectionError(f"HTTP {resp.status} from {urlparse(url).netloc}")
+                    # itslearning hands the code over with JavaScript:
+                    #   top.location.replace('itsl-itslearning://login/?state=…&code=…')
+                    for m in APP_REDIRECT_RE.finditer(text):
+                        target = unescape(m.group(0)).replace("\\/", "/")
+                        if re.search(r"[?&](code|error)=", target):
+                            _LOGGER.debug("→ Hittade app-koden i sidans JavaScript")
+                            self._check_for_code(target)
                     return url, text
             except aiohttp.ClientError as err:
                 raise ItslearningConnectionError(str(err)) from err
@@ -534,6 +542,7 @@ class ItslearningClient:
         import os
         clean = re.sub(r'(name="(?:__VIEWSTATE|__EVENTVALIDATION|SAMLResponse|SAMLRequest)"[^>]*value=")[^"]*', r"\1(borttaget)", html)
         clean = re.sub(r'(value=")[^"]*("[^>]*name="(?:__VIEWSTATE|__EVENTVALIDATION)")', r"\1(borttaget)\2", clean)
+        clean = re.sub(r"(code=)[^&'\"\s]+", r"\1(borttaget)", clean)
         path = os.path.join(self.dump_dir, f"itslearning_{name}.html")
         with open(path, "w", encoding="utf-8") as f:
             f.write(clean)
