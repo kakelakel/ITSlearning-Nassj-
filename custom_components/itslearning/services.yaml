@@ -8,13 +8,15 @@ sync_calendar:
     include:
       default:
         - deadlines
+        - events
       selector:
         select:
           multiple: true
           translation_key: include
           options:
             - deadlines
-            - schedule
+            - events
+            - plans
     days_ahead:
       default: 14
       selector:

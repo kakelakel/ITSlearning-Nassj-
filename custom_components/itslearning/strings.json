@@ -30,6 +30,21 @@
   },
   "entity": {
     "sensor": {
+      "today": {
+        "name": "Today"
+      },
+      "tomorrow": {
+        "name": "Tomorrow"
+      },
+      "upcoming_events": {
+        "name": "Upcoming events"
+      },
+      "plans_this_week": {
+        "name": "Plans this week"
+      },
+      "plans_next_week": {
+        "name": "Plans next week"
+      },
       "upcoming_tasks": {
         "name": "Upcoming tasks"
       },
@@ -45,17 +60,8 @@
       "next_deadline": {
         "name": "Next deadline"
       },
-      "schedule_today": {
-        "name": "Schedule today"
-      },
-      "schedule_tomorrow": {
-        "name": "Schedule tomorrow"
-      },
-      "next_lesson": {
-        "name": "Next lesson"
-      },
-      "next_school_day_start": {
-        "name": "Next school day starts"
+      "news": {
+        "name": "News last week"
       },
       "unread_notifications": {
         "name": "Unread notifications"
@@ -65,8 +71,11 @@
       "deadlines": {
         "name": "Deadlines"
       },
-      "schedule": {
-        "name": "Schedule"
+      "events": {
+        "name": "Events"
+      },
+      "plans": {
+        "name": "Plans"
       }
     }
   },
@@ -81,7 +90,7 @@
         },
         "include": {
           "name": "What to sync",
-          "description": "Deadlines, schedule or both."
+          "description": "Deadlines, events (tests, homework checks) and/or plans."
         },
         "days_ahead": {
           "name": "Days ahead",
@@ -93,8 +102,9 @@
   "selector": {
     "include": {
       "options": {
-        "deadlines": "Homework/deadlines",
-        "schedule": "Schedule/lessons"
+        "deadlines": "Tasks with deadline",
+        "events": "Events (tests …)",
+        "plans": "Plans (lesson plans)"
       }
     }
   }

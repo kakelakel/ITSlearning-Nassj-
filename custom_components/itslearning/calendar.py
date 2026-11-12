@@ -1,15 +1,17 @@
-"""Calendars: homework deadlines and the school schedule."""
+"""Calendars: deadlines, itslearning events (tests, homework checks …) and course plans."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import ItslearningConfigEntry
-from .api import CalendarItem, Task
+from .api import CalendarItem, Plan, Task
+from .const import DOMAIN
 from .coordinator import ItslearningData
 from .entity import ItslearningEntity
 
@@ -19,27 +21,33 @@ DEADLINE_LENGTH = timedelta(minutes=30)
 async def async_setup_entry(
     hass: HomeAssistant, entry: ItslearningConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
+    reg = er.async_get(hass)
+    if eid := reg.async_get_entity_id("calendar", DOMAIN, f"{entry.entry_id}_schedule"):
+        reg.async_remove(eid)  # renamed to "events" (itslearning has no lesson schedule)
     c = entry.runtime_data
-    async_add_entities([DeadlineCalendar(c), ScheduleCalendar(c)])
+    async_add_entities([DeadlineCalendar(c), EventCalendar(c), PlanCalendar(c)])
+
+
+def _label(subject: str, title: str) -> str:
+    if subject and subject.lower() not in title.lower():
+        return f"{subject}: {title}"
+    return title
 
 
 def deadline_event(task: Task) -> CalendarEvent:
-    summary = f"📚 {task.title} ({task.course})" if task.course else f"📚 {task.title}"
     description = f"Status: {task.status or 'okänd'}"
     if task.url:
         description += f"\n{task.url}"
     return CalendarEvent(
         start=task.deadline - DEADLINE_LENGTH, end=task.deadline,
-        summary=summary, description=description, uid=f"itsl-task-{task.id}",
+        summary=f"📚 {_label(task.subject, task.title)}", description=description, uid=f"itsl-task-{task.id}",
     )
 
 
-def schedule_event(item: CalendarItem) -> CalendarEvent:
-    summary = item.title
-    if item.course and item.course.lower() not in item.title.lower():
-        summary = f"{item.title} ({item.course})"
+def item_event(item: CalendarItem) -> CalendarEvent:
     if item.all_day:
-        start, end = dt_util.as_local(item.start).date(), dt_util.as_local(item.end).date()
+        start = dt_util.as_local(item.start).date()
+        end = dt_util.as_local(item.end - timedelta(seconds=1)).date() + timedelta(days=1)
         if end <= start:
             end = start + timedelta(days=1)
     else:
@@ -48,8 +56,22 @@ def schedule_event(item: CalendarItem) -> CalendarEvent:
     if item.url:
         description = f"{description}\n{item.url}".strip()
     return CalendarEvent(
-        start=start, end=end, summary=summary, description=description or None,
+        start=start, end=end, summary=f"📝 {_label(item.subject, item.title)}", description=description or None,
         location=item.location or None, uid=f"itsl-event-{item.id}",
+    )
+
+
+def plan_event(plan: Plan) -> CalendarEvent:
+    start = dt_util.as_local(plan.start).date()
+    end = dt_util.as_local(plan.stop).date() + timedelta(days=1)
+    if end <= start:
+        end = start + timedelta(days=1)
+    description = plan.description
+    if plan.url:
+        description = f"{description}\n{plan.url}".strip()
+    return CalendarEvent(
+        start=start, end=end, summary=f"📖 {_label(plan.subject, plan.name)}",
+        description=description or None, uid=f"itsl-plan-{plan.id}",
     )
 
 
@@ -85,13 +107,25 @@ class DeadlineCalendar(_BaseCalendar):
         )
 
 
-class ScheduleCalendar(_BaseCalendar):
-    """Lessons and other events from the itslearning calendar."""
+class EventCalendar(_BaseCalendar):
+    """Events from the itslearning calendar (homework checks, tests, school events)."""
 
-    _attr_translation_key = "schedule"
+    _attr_translation_key = "events"
 
     def __init__(self, coordinator) -> None:
-        super().__init__(coordinator, "schedule", "calendar")
+        super().__init__(coordinator, "events", "calendar")
 
     def _events(self, data: ItslearningData) -> list[CalendarEvent]:
-        return sorted((schedule_event(i) for i in data.events), key=lambda e: e.start_datetime_local)
+        return sorted((item_event(i) for i in data.events), key=lambda e: e.start_datetime_local)
+
+
+class PlanCalendar(_BaseCalendar):
+    """Course plans (lesson plans / weekly plans) as all-day events."""
+
+    _attr_translation_key = "plans"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "plans", "calendar")
+
+    def _events(self, data: ItslearningData) -> list[CalendarEvent]:
+        return sorted((plan_event(p) for p in data.plans), key=lambda e: e.start_datetime_local)

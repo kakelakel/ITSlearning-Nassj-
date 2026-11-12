@@ -208,6 +208,46 @@ class Tokens:
         return cls(d.get("access_token", ""), d["refresh_token"], float(d.get("expires_at", 0)))
 
 
+# Swedish subject names for itslearning course codes ("BR7E/SV" -> "Svenska").
+SUBJECTS = {
+    "BI": "Biologi", "BL": "Bild", "FY": "Fysik", "GE": "Geografi", "HI": "Historia",
+    "HKK": "Hem- och konsumentkunskap", "IDH": "Idrott och hälsa", "KE": "Kemi",
+    "MA": "Matematik", "MU": "Musik", "RE": "Religion", "SH": "Samhällskunskap",
+    "SL": "Slöjd", "SLTX": "Textilslöjd", "SLTR": "Trä- och metallslöjd", "SO": "SO", "NO": "NO",
+    "SV": "Svenska", "SVA": "Svenska som andraspråk", "TEMA": "Tema", "TK": "Teknik",
+    "EN": "Engelska", "DEU": "Tyska", "FRA": "Franska", "SPA": "Spanska", "M2DEU": "Tyska",
+    "M2FRA": "Franska", "M2SPA": "Spanska", "M-TID": "Mentorstid", "MENTOR": "Mentorstid",
+    "ML": "Modersmål", "SPRÅK": "Språkval", "ELEVENS VAL": "Elevens val",
+}
+
+
+def subject_name(title: str | None, code: str | None = None) -> str:
+    """Readable subject for a course title like 'BR7E/SV', 'M2DEU/BR7' or 'BR7E/HKK-1'."""
+    title = (title or "").strip()
+    candidates = []
+    if code:
+        candidates.append(code)
+    for part in title.replace("\\", "/").split("/"):
+        candidates.append(part)
+        candidates.append(re.sub(r"[-_ ]?\d+$", "", part))
+    for c in candidates:
+        key = c.strip().upper()
+        if key in SUBJECTS:
+            return SUBJECTS[key]
+    return title
+
+
+def html_to_text(html: str | None) -> str:
+    if not html:
+        return ""
+    t = re.sub(r"(?i)<br\s*/?>|</p>|</li>|</div>|</h\d>", "\n", html)
+    t = re.sub(r"(?i)<li[^>]*>", "• ", t)
+    t = re.sub(r"<[^>]+>", "", t)
+    t = unescape(t).replace("\xa0", " ")
+    lines = [" ".join(line.split()) for line in t.splitlines()]
+    return "\n".join(line for line in lines if line).strip()
+
+
 @dataclass
 class Task:
     id: int
@@ -217,20 +257,28 @@ class Task:
     deadline: datetime | None
     url: str
     element_type: str
+    homework: bool = False
+    description: str = ""
 
     @property
     def completed(self) -> bool:
         return self.status.replace(" ", "").lower() in COMPLETED_STATUSES
+
+    @property
+    def subject(self) -> str:
+        return subject_name(self.course)
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "title": self.title,
             "course": self.course,
+            "subject": self.subject,
             "status": self.status,
             "deadline": self.deadline.isoformat() if self.deadline else None,
             "url": self.url,
             "type": self.element_type,
+            "homework": self.homework,
         }
 
 
@@ -257,6 +305,8 @@ def parse_datetime(value: Any) -> datetime | None:
 
 @dataclass
 class CalendarItem:
+    """An itslearning calendar event: homework check, test, school event …"""
+
     id: str
     title: str
     start: datetime
@@ -268,17 +318,88 @@ class CalendarItem:
     kind: str
     all_day: bool = False
 
+    @property
+    def subject(self) -> str:
+        return subject_name(self.course) if self.course else ""
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "title": self.title,
             "start": self.start.isoformat(),
             "end": self.end.isoformat(),
+            "all_day": self.all_day,
             "course": self.course,
+            "subject": self.subject,
             "location": self.location,
+            "description": self.description[:300],
             "kind": self.kind,
             "url": self.url,
         }
+
+
+@dataclass
+class Plan:
+    """A lesson plan / weekly plan from a course (where teachers put homework)."""
+
+    id: int
+    name: str
+    description: str
+    start: datetime
+    stop: datetime
+    course: str
+    course_id: int
+    url: str = ""
+
+    @property
+    def subject(self) -> str:
+        return subject_name(self.course)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description[:500],
+            "start": self.start.isoformat(),
+            "stop": self.stop.isoformat(),
+            "course": self.course,
+            "subject": self.subject,
+            "url": self.url,
+        }
+
+
+@dataclass
+class News:
+    id: int
+    text: str
+    course: str
+    published: datetime | None
+    author: str
+    url: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "text": self.text[:200],
+            "course": self.course,
+            "subject": subject_name(self.course) if self.course else "",
+            "published": self.published.isoformat() if self.published else None,
+            "author": self.author,
+            "url": self.url,
+        }
+
+
+@dataclass
+class Course:
+    id: int
+    title: str
+    code: str
+    url: str
+    new_notifications: int = 0
+
+    @property
+    def subject(self) -> str:
+        return subject_name(self.title, self.code)
 
 
 def _first(j: dict[str, Any], *keys: str) -> Any:
@@ -295,9 +416,12 @@ def _event_from_json(j: dict[str, Any]) -> CalendarItem | None:
         return None
     end = parse_datetime(_first(j, "ToDate", "EndDate", "End", "ToDateUtc", "EndDateUtc")) or start
     all_day = bool(_first(j, "IsAllDay", "AllDay", "IsFullDay") or False)
+    # Teachers often enter "the whole school day" (e.g. 08:00–16:00) for homework.
+    if not all_day and end - start >= timedelta(hours=6):
+        all_day = True
     if end <= start:
         end = start + (timedelta(days=1) if all_day else timedelta(minutes=30))
-    course = _first(j, "CourseTitle", "CourseName", "LocationTitle", "Course", "ContextTitle") or ""
+    course = _first(j, "LocationTitle", "CourseTitle", "CourseName", "Course", "ContextTitle") or ""
     if isinstance(course, dict):
         course = course.get("Title") or ""
     return CalendarItem(
@@ -307,7 +431,7 @@ def _event_from_json(j: dict[str, Any]) -> CalendarItem | None:
         end=end,
         course=str(course),
         location=str(_first(j, "Location", "Room", "Place") or ""),
-        description=str(_first(j, "Description", "Text") or ""),
+        description=html_to_text(str(_first(j, "Description", "Text") or "")),
         url=str(_first(j, "Url", "ContentUrl") or ""),
         kind=str(_first(j, "EventType", "Type", "ElementType") or ""),
         all_day=all_day,
@@ -323,6 +447,8 @@ def _task_from_json(j: dict[str, Any]) -> Task:
         deadline=parse_datetime(j.get("Deadline") or j.get("DeadlineUtc")),
         url=str(j.get("Url") or ""),
         element_type=str(j.get("ElementType") or ""),
+        homework=bool(j.get("Homework")),
+        description=html_to_text(j.get("Description")),
     )
 
 
@@ -763,7 +889,68 @@ class ItslearningClient:
         data = await self._get("/restapi/personal/notifications/v1/", {"PageIndex": 0, "PageSize": 50})
         return sum(1 for n in (data or {}).get("EntityArray", []) if not n.get("IsRead", True))
 
-    async def fetch_calendar(self, days_back: int = 1, days_ahead: int = 21) -> list[CalendarItem]:
+    async def fetch_courses(self) -> list[Course]:
+        data = await self._get("/restapi/personal/courses/v1/", {"PageIndex": 0, "PageSize": 100})
+        return [
+            Course(
+                id=int(c["CourseId"]), title=str(c.get("Title") or ""), code=str(c.get("CourseCode") or ""),
+                url=str(c.get("Url") or ""), new_notifications=int(c.get("NewNotificationsCount") or 0),
+            )
+            for c in (data or {}).get("EntityArray", [])
+            if c.get("CourseId") is not None
+        ]
+
+    async def fetch_plans(self, courses: list[Course], days_back: int = 7, days_ahead: int = 21) -> list[Plan]:
+        """Lesson/weekly plans for all courses in a date window."""
+        import asyncio
+
+        today = datetime.now(timezone.utc).date()
+        params = {
+            "startDate": (today - timedelta(days=days_back)).isoformat(),
+            "stopDate": (today + timedelta(days=days_ahead)).isoformat(),
+        }
+        sem = asyncio.Semaphore(4)
+
+        async def one(course: Course) -> list[Plan]:
+            async with sem:
+                try:
+                    data = await self._get("/restapi/personal/planner/v1", {"courseId": course.id, **params})
+                except ItslearningError as err:
+                    _LOGGER.debug("Planer för %s gick inte att hämta: %s", course.title, err)
+                    return []
+            rows = data.get("EntityArray", []) if isinstance(data, dict) else (data or [])
+            out = []
+            for r in rows:
+                start = parse_datetime(r.get("Start"))
+                stop = parse_datetime(r.get("Stop")) or start
+                if start is None:
+                    continue
+                out.append(Plan(
+                    id=int(r.get("PlanId") or 0), name=str(r.get("PlanName") or "Planering"),
+                    description=html_to_text(r.get("PlanDescription")), start=start, stop=max(stop, start),
+                    course=course.title, course_id=course.id, url=course.url,
+                ))
+            return out
+
+        results = await asyncio.gather(*(one(c) for c in courses))
+        return sorted((p for r in results for p in r), key=lambda p: (p.start, p.course))
+
+    async def fetch_news(self, count: int = 15) -> list[News]:
+        data = await self._get("/restapi/personal/notifications/stream/v1/", {"PageIndex": 0, "PageSize": count})
+        out = []
+        for n in (data or {}).get("EntityArray", []):
+            by = n.get("PublishedBy") or {}
+            lb = n.get("LightBulletin") or {}
+            text = html_to_text(lb.get("Text")) if isinstance(lb, dict) and lb.get("Text") else html_to_text(n.get("Text"))
+            out.append(News(
+                id=int(n.get("NotificationId") or 0), text=text, course=str(n.get("LocationTitle") or ""),
+                published=parse_datetime(n.get("PublishedDate")),
+                author=str(by.get("FullName") or " ".join(x for x in (by.get("FirstName"), by.get("LastName")) if x)),
+                url=str(n.get("Url") or ""),
+            ))
+        return out
+
+    async def fetch_calendar(self, days_back: int = 7, days_ahead: int = 28) -> list[CalendarItem]:
         """Calendar events (lessons, tests, school events) around today."""
         now = datetime.now(timezone.utc)
         start = now - timedelta(days=days_back)

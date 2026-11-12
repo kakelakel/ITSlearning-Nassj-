@@ -3,14 +3,18 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorEntityDescription
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import ItslearningConfigEntry
 from . import selectors as sel
+from .const import DOMAIN
 from .coordinator import ItslearningData
 from .entity import ItslearningEntity
 
@@ -25,19 +29,74 @@ def _events(events) -> dict[str, Any]:
     return {"events": [sel.fmt_event(e) for e in events[:MAX_ITEMS]]}
 
 
-def _first_start(events):
-    timed = [e for e in events if not e.all_day]
-    return timed[0].start if timed else None
-
-
 @dataclass(frozen=True, kw_only=True)
 class ItslearningSensorDescription(SensorEntityDescription):
     value_fn: Callable[[ItslearningData], Any]
     attrs_fn: Callable[[ItslearningData], dict[str, Any]] | None = None
 
 
+def _news_attrs(d: ItslearningData) -> dict[str, Any]:
+    out = []
+    for n in d.news[:MAX_ITEMS]:
+        item = n.as_dict()
+        if n.published:
+            item["day"] = sel._day_label(sel.local_date(n.published))
+        out.append(item)
+    return {"news": out}
+
+
+def _recent_news(d: ItslearningData) -> int:
+    since = dt_util.utcnow() - timedelta(days=7)
+    return sum(1 for n in d.news if n.published and n.published >= since)
+
+
 SENSORS: tuple[ItslearningSensorDescription, ...] = (
-    # --- Homework / tasks ---------------------------------------------------
+    # --- Day overview -------------------------------------------------------
+    ItslearningSensorDescription(
+        key="today",
+        translation_key="today",
+        icon="mdi:calendar-today",
+        native_unit_of_measurement="st",
+        value_fn=lambda d: sel.day_count(sel.homework_today(d)),
+        attrs_fn=sel.homework_today,
+    ),
+    ItslearningSensorDescription(
+        key="tomorrow",
+        translation_key="tomorrow",
+        icon="mdi:calendar-arrow-right",
+        native_unit_of_measurement="st",
+        value_fn=lambda d: sel.day_count(sel.tomorrow_bundle(d)),
+        attrs_fn=sel.tomorrow_bundle,
+    ),
+    # --- Events (homework checks, tests …) ------------------------------------
+    ItslearningSensorDescription(
+        key="upcoming_events",
+        translation_key="upcoming_events",
+        icon="mdi:calendar-star",
+        native_unit_of_measurement="st",
+        value_fn=lambda d: len(sel.upcoming_events(d)),
+        attrs_fn=lambda d: _events(sel.upcoming_events(d)),
+    ),
+    # --- Plans ------------------------------------------------------------------
+    ItslearningSensorDescription(
+        key="plans_this_week",
+        translation_key="plans_this_week",
+        icon="mdi:notebook-outline",
+        native_unit_of_measurement="st",
+        value_fn=lambda d: len(sel.plans_in_week(d)),
+        attrs_fn=lambda d: {"plans": [sel.fmt_plan(p) for p in sel.plans_in_week(d)[:MAX_ITEMS]],
+                            "week": sel.week_bounds()[0].isocalendar()[1]},
+    ),
+    ItslearningSensorDescription(
+        key="plans_next_week",
+        translation_key="plans_next_week",
+        icon="mdi:notebook-outline",
+        native_unit_of_measurement="st",
+        value_fn=lambda d: len(sel.plans_in_week(d, 1)),
+        attrs_fn=lambda d: {"plans": [sel.fmt_plan(p) for p in sel.plans_in_week(d, 1)[:MAX_ITEMS]],
+                            "week": sel.week_bounds(1)[0].isocalendar()[1]},
+    ),
+    # --- Tasks ------------------------------------------------------------------
     ItslearningSensorDescription(
         key="upcoming_tasks",
         translation_key="upcoming_tasks",
@@ -77,39 +136,15 @@ SENSORS: tuple[ItslearningSensorDescription, ...] = (
         value_fn=lambda d: (u[0].deadline if (u := sel.upcoming(d)) else None),
         attrs_fn=lambda d: (sel.fmt_task(u[0]) if (u := sel.upcoming(d)) else {}),
     ),
-    # --- Schedule ------------------------------------------------------------
+    # --- News -------------------------------------------------------------------
     ItslearningSensorDescription(
-        key="schedule_today",
-        translation_key="schedule_today",
-        icon="mdi:calendar-today",
+        key="news",
+        translation_key="news",
+        icon="mdi:newspaper-variant-outline",
         native_unit_of_measurement="st",
-        value_fn=lambda d: len(sel.today(d)),
-        attrs_fn=lambda d: _events(sel.today(d)),
+        value_fn=_recent_news,
+        attrs_fn=_news_attrs,
     ),
-    ItslearningSensorDescription(
-        key="schedule_tomorrow",
-        translation_key="schedule_tomorrow",
-        icon="mdi:calendar-arrow-right",
-        native_unit_of_measurement="st",
-        value_fn=lambda d: len(sel.tomorrow(d)),
-        attrs_fn=lambda d: _events(sel.tomorrow(d)),
-    ),
-    ItslearningSensorDescription(
-        key="next_lesson",
-        translation_key="next_lesson",
-        device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda d: (e.start if (e := sel.next_event(d)) else None),
-        attrs_fn=lambda d: (sel.fmt_event(e) if (e := sel.next_event(d)) else {}),
-    ),
-    ItslearningSensorDescription(
-        key="next_school_day_start",
-        translation_key="next_school_day_start",
-        device_class=SensorDeviceClass.TIMESTAMP,
-        icon="mdi:alarm",
-        value_fn=lambda d: _first_start(sel.next_school_day(d)),
-        attrs_fn=lambda d: _events(sel.next_school_day(d)),
-    ),
-    # --- Other ---------------------------------------------------------------
     ItslearningSensorDescription(
         key="unread_notifications",
         translation_key="unread_notifications",
@@ -118,11 +153,18 @@ SENSORS: tuple[ItslearningSensorDescription, ...] = (
     ),
 )
 
+OLD_KEYS = ("schedule_today", "schedule_tomorrow", "next_lesson", "next_school_day_start")
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ItslearningConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator = entry.runtime_data
+    # Remove sensors from earlier versions (there is no lesson schedule in itslearning).
+    reg = er.async_get(hass)
+    for key in OLD_KEYS:
+        if eid := reg.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_{key}"):
+            reg.async_remove(eid)
     async_add_entities(ItslearningSensor(coordinator, desc) for desc in SENSORS)
 
 

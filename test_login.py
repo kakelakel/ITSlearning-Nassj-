@@ -53,15 +53,22 @@ async def show(client) -> None:
         dl = t.deadline.astimezone().strftime("%a %d %b %H:%M") if t.deadline else "ingen deadline"
         print(f"  - {dl:20}  {t.title}  [{t.course}]  status={t.status!r}")
     try:
-        events = await client.fetch_calendar(days_back=0, days_ahead=7)
-        print(f"✓ {len(events)} kalenderhändelser kommande 7 dagar:")
-        for e in events[:25]:
-            when = e.start.astimezone().strftime("%a %d %b %H:%M") + "–" + e.end.astimezone().strftime("%H:%M")
-            print(f"  - {when:24}  {e.title}  [{e.course}]  {e.location}  typ={e.kind!r}")
-        if not events:
-            print("  (inga – kör med --debug och skicka raden 'Kalenderfält' om schemat borde synas)")
+        events = await client.fetch_calendar(days_back=0, days_ahead=14)
+        print(f"✓ {len(events)} händelser kommande 14 dagar (läxförhör, prov …):")
+        for e in events[:20]:
+            when = e.start.astimezone().strftime("%a %d %b") + ("" if e.all_day else e.start.astimezone().strftime(" %H:%M"))
+            print(f"  - {when:16}  {e.subject or e.course}: {e.title}  {e.description[:60]}")
+        courses = await client.fetch_courses()
+        plans = await client.fetch_plans(courses, days_back=0, days_ahead=14)
+        print(f"✓ {len(plans)} planeringar kommande 14 dagar ({len(courses)} kurser):")
+        for p in plans[:20]:
+            print(f"  - {p.start.astimezone():%a %d %b}  {p.subject}: {p.name}  {p.description[:60]!r}")
+        news = await client.fetch_news(5)
+        print(f"✓ Senaste nyheter:")
+        for n in news:
+            print(f"  - {n.published.astimezone():%d %b} {n.course}: {n.text[:70]}")
     except api.ItslearningError as err:
-        print(f"  (kalendern gick inte att hämta: {err})")
+        print(f"  (kalender/planer/nyheter gick inte att hämta: {err})")
     try:
         print(f"✓ Olästa notiser: {await client.fetch_unread_notifications()}")
     except api.ItslearningError as err:

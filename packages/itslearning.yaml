@@ -16,8 +16,9 @@ script:
         data:
           target_calendar: calendar.DIN_GOOGLE_KALENDER   # ← byt
           include:
-            - deadlines
-            # - schedule      # ta bort # om lektionerna också ska in i Google
+            - deadlines       # uppgifter med deadline
+            - events          # läxförhör, prov och andra händelser
+            # - plans         # ta bort # om även lektionsplaneringen ska in
           days_ahead: 14
         response_variable: result
       - action: persistent_notification.create
@@ -30,7 +31,7 @@ script:
 automation:
   - id: itslearning_synka_till_google_kalender
     alias: "itslearning: synka till Google Kalender"
-    description: Lägger in nya läxor/deadlines i Google Kalender varje timme.
+    description: Lägger in nya deadlines, läxförhör och prov i Google Kalender varje timme.
     triggers:
       - trigger: time_pattern
         minutes: "17"
@@ -43,24 +44,35 @@ automation:
           target_calendar: calendar.DIN_GOOGLE_KALENDER   # ← byt
           include:
             - deadlines
+            - events
+            # - plans
           days_ahead: 14
     mode: single
 
   - id: itslearning_laxpaminnelse
-    alias: "itslearning: läxor till i morgon"
+    alias: "itslearning: påminnelse om i morgon"
+    description: Kl. 18 – läxförhör, prov, deadlines och planering för i morgon.
     triggers:
       - trigger: time
         at: "18:00:00"
     conditions:
-      - condition: numeric_state
-        entity_id: sensor.itslearning_due_tomorrow
-        above: 0
+      - condition: template
+        value_template: >-
+          {% set d = state_attr('sensor.itslearning_tomorrow', 'events') or [] %}
+          {% set t = state_attr('sensor.itslearning_tomorrow', 'tasks') or [] %}
+          {{ (d + t) | count > 0 }}
     actions:
       - action: notify.mobile_app_DIN_TELEFON   # ← byt
         data:
-          title: Läxor till i morgon
+          title: I morgon i skolan
           message: |
-            {% for t in state_attr('sensor.itslearning_due_tomorrow', 'tasks') %}
-            • {{ t.title }} ({{ t.course }}) – {{ t.deadline_local[11:] }}
+            {% for e in state_attr('sensor.itslearning_tomorrow', 'events') or [] %}
+            📝 {{ e.subject or e.course }}: {{ e.title }}{% if e.description %} – {{ e.description[:80] }}{% endif %}
+            {% endfor %}
+            {% for t in state_attr('sensor.itslearning_tomorrow', 'tasks') or [] %}
+            📚 {{ t.title }} ({{ t.subject }}) – lämnas {{ t.deadline_local[11:] }}
+            {% endfor %}
+            {% for p in state_attr('sensor.itslearning_tomorrow', 'plans') or [] %}
+            📖 {{ p.subject }}: {{ p.name }}
             {% endfor %}
     mode: single

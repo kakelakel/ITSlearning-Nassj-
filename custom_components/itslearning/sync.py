@@ -21,7 +21,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
-from .calendar import deadline_event, schedule_event
+from .calendar import deadline_event, item_event, plan_event
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,13 +30,13 @@ SERVICE_SYNC = "sync_calendar"
 ATTR_TARGET = "target_calendar"
 ATTR_INCLUDE = "include"
 ATTR_DAYS = "days_ahead"
-INCLUDE_OPTIONS = ["deadlines", "schedule"]
+INCLUDE_OPTIONS = ["deadlines", "events", "plans", "schedule"]  # "schedule" = old name for "events"
 MARKER = "[itsl:{uid}]"
 
 SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_TARGET): cv.entity_id,
-        vol.Optional(ATTR_INCLUDE, default=["deadlines"]): vol.All(cv.ensure_list, [vol.In(INCLUDE_OPTIONS)]),
+        vol.Optional(ATTR_INCLUDE, default=["deadlines", "events"]): vol.All(cv.ensure_list, [vol.In(INCLUDE_OPTIONS)]),
         vol.Optional(ATTR_DAYS, default=14): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
     }
 )
@@ -109,8 +109,10 @@ def async_register_services(hass: HomeAssistant) -> None:
             data = entry.runtime_data.data
             if "deadlines" in include:
                 wanted += [deadline_event(t) for t in data.tasks if t.deadline and not t.completed]
-            if "schedule" in include:
-                wanted += [schedule_event(i) for i in data.events]
+            if "events" in include or "schedule" in include:
+                wanted += [item_event(i) for i in data.events]
+            if "plans" in include:
+                wanted += [plan_event(p) for p in data.plans]
         wanted = [e for e in wanted if _bounds(e)[1] > start and _bounds(e)[0] < end]
 
         markers, keys = await _existing(hass, target, start - timedelta(days=1), end + timedelta(days=1))

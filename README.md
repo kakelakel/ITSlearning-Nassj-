@@ -11,21 +11,25 @@ Med i repot:
 
 ## Entiteter
 
+itslearning har inget lektionsschema, det ligger oftast i ett annat system som Skola24. Integrationen hämtar det som lärarna lägger in i itslearning:
+
 | Entitet | Beskrivning |
 |---|---|
-| `sensor.itslearning_upcoming_tasks` | Ej klara uppgifter med deadline framåt (lista i attributet `tasks`). |
+| `sensor.itslearning_today` / `_tomorrow` | Allt för dagen: händelser, planering och deadlines (attributen `events`, `plans`, `tasks`). |
+| `sensor.itslearning_upcoming_events` | Läxförhör, prov och andra händelser kommande 14 dagar. |
+| `sensor.itslearning_plans_this_week` / `_next_week` | Lektionsplanering per kurs ("5.1 Liv i samspel – s. 126–133"). |
+| `sensor.itslearning_upcoming_tasks` | Uppgifter med deadline framåt. |
 | `sensor.itslearning_due_tomorrow` | Uppgifter med deadline före midnatt i morgon. |
 | `sensor.itslearning_overdue_tasks` | Ej klara uppgifter där deadline har passerat. |
 | `sensor.itslearning_tasks_without_deadline` | Ej klara uppgifter utan deadline. |
 | `sensor.itslearning_next_deadline` | Tidpunkt för nästa deadline. |
-| `sensor.itslearning_schedule_today` / `_tomorrow` | Antal lektioner/händelser (lista i attributet `events`). |
-| `sensor.itslearning_next_lesson` | Nästa lektion (tid, titel, sal). |
-| `sensor.itslearning_next_school_day_start` | När första lektionen nästa skoldag börjar, användbart till väckning. |
+| `sensor.itslearning_news` | Nyheter från lärarna (antal senaste veckan, lista i `news`). |
 | `sensor.itslearning_unread_notifications` | Olästa notiser. |
-| `calendar.itslearning_schedule` | Schemat från itslearnings kalender. |
+| `calendar.itslearning_events` | Händelser från itslearnings kalender. |
+| `calendar.itslearning_plans` | Planering som heldagshändelser. |
 | `calendar.itslearning_deadlines` | Deadlines (30 min, slutar vid deadline). |
 
-Data hämtas var 30:e minut. Med ett andra barn får entiteterna ändelsen `_2`.
+Kurskoder översätts till ämnen, till exempel `BR7E/SV` → Svenska och `M2DEU/BR7` → Tyska. Data hämtas var 30:e minut. Med ett andra barn får entiteterna ändelsen `_2`.
 
 ## 1. Testa inloggningen
 
@@ -35,7 +39,7 @@ python3 test_login.py            # Windows: py test_login.py
 python3 test_login.py --debug    # visar varje steg
 ```
 
-Skriptet visar uppgifter, kalenderhändelser och notiser och testar att förnya token.
+Skriptet visar uppgifter, händelser, planering och nyheter och testar att förnya token. `--explore` visar rådata från alla delar av API:et.
 
 ## 2. Installera integrationen
 
@@ -48,11 +52,12 @@ Sedan: *Inställningar → Enheter och tjänster → Lägg till integration → 
 *Inställningar → Instrumentpaneler → Lägg till instrumentpanel → Ny från början*. Öppna den, välj ⋮ → *Redigera* → ⋮ → *Raw-konfigurationsredigerare* och klistra in innehållet i `lovelace/itslearning-dashboard.yaml`.
 
 Panelen visar:
-- **Idag:** dagens lektioner. Pågående lektion markeras och passerade gråas ut.
-- **I morgon:** morgondagens lektioner.
-- **Läxor:** försenade i rött och kommande med färg efter hur bråttom det är. Uppgifter utan deadline ligger under en utfällbar rubrik.
-- **Vecka:** en kalenderlista med schema och deadlines.
-- **Google:** en knapp för att synka till Google Kalender nu, och av/på för automatisk synk.
+- **Idag / I morgon:** läxförhör, prov, deadlines och dagens planering med beskrivning.
+- **Planering denna vecka:** per veckodag. Nästa vecka ligger under en utfällbar rubrik.
+- **Läxor & prov:** färg efter hur bråttom det är. Försenade visas i rött och uppgifter utan deadline ligger under en utfällbar rubrik.
+- **Nyheter från lärarna.**
+- **Kalender:** veckolista med händelser, planering och deadlines.
+- **Google:** synka nu, och av/på för automatisk synk.
 
 Panelen använder bara inbyggda kort.
 
@@ -66,7 +71,9 @@ Panelen använder bara inbyggda kort.
    ```
 3. Byt `calendar.DIN_GOOGLE_KALENDER` och `notify.mobile_app_DIN_TELEFON` i filen och starta om.
 
-Synken körs varje timme och lägger bara till **nya** händelser. Varje händelse får en markering `[itsl:…]` i beskrivningen, så den läggs aldrig in två gånger. Som standard synkas bara läxor/deadlines. Ta bort `#` framför `- schedule` om även lektionerna ska in.
+Synken körs varje timme och lägger bara till **nya** händelser. Varje händelse får en markering `[itsl:…]` i beskrivningen, så den läggs aldrig in två gånger. Som standard synkas deadlines och händelser (läxförhör, prov). Ta bort `#` framför `- plans` om även planeringen ska in.
+
+Påminnelsen kl. 18 skickas bara när något är inlagt för i morgon.
 
 Begränsning: Home Assistant kan inte ta bort eller flytta händelser i en annan kalender. Om en lärare flyttar en deadline läggs den nya tiden in, men den gamla ligger kvar tills du tar bort den.
 
@@ -92,7 +99,7 @@ logger:
 ```
 
 - **Inloggningen misslyckas:** kör `test_login.py --debug` och se var det stannar.
-- **Schemat är tomt:** kör testskriptet med `--debug` och leta efter raden `Kalenderfält: […]`. Skapa ett issue med den raden. Den visar vilka fält itslearning skickar men inga personuppgifter.
+- **Något saknas:** kör `test_login.py --explore` och se vad itslearning faktiskt skickar.
 - **Statusvärden:** uppgifter räknas som klara när status är till exempel `Completed` eller `Submitted`.
 
 ## Licens

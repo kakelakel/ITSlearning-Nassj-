@@ -8,29 +8,33 @@ views:
     path: skola
     icon: mdi:school
     type: sections
-    max_columns: 3
+    max_columns: 4
     badges:
       - type: entity
-        entity: sensor.itslearning_due_tomorrow
-        name: Till i morgon
+        entity: sensor.itslearning_tomorrow
+        name: I morgon
         show_name: true
         color: orange
+      - type: entity
+        entity: sensor.itslearning_upcoming_events
+        name: Prov & läxförhör
+        show_name: true
+        color: purple
       - type: entity
         entity: sensor.itslearning_overdue_tasks
         name: Försenade
         show_name: true
         color: red
       - type: entity
-        entity: sensor.itslearning_unread_notifications
-        name: Notiser
+        entity: sensor.itslearning_news
+        name: Nyheter (7 d)
         show_name: true
       - type: entity
-        entity: sensor.itslearning_next_school_day_start
-        name: Nästa skoldag
+        entity: sensor.itslearning_unread_notifications
+        name: Olästa
         show_name: true
-        icon: mdi:alarm
     sections:
-      # ------------------------------------------------------------ IDAG
+      # ================================================================ DAG
       - type: grid
         cards:
           - type: heading
@@ -38,59 +42,102 @@ views:
             icon: mdi:calendar-today
           - type: markdown
             content: |
-              {% set ev = state_attr('sensor.itslearning_schedule_today', 'events') or [] %}
-              {% set now_ts = now().timestamp() %}
-              {% if ev | count == 0 %}
-              *Inga lektioner idag* 🎉
-              {% else %}
-              {% for e in ev %}
-              {%- set s = as_timestamp(e.start) %}{% set t = as_timestamp(e.end) -%}
-              {%- if s <= now_ts < t %}
-              **▶ {{ e.time }} · {{ e.title }}**{% if e.location %} · {{ e.location }}{% endif %}
-              {%- elif t <= now_ts %}
-              <font color="gray">{{ e.time }} · {{ e.title }}</font>
-              {%- else %}
-              {{ e.time }} · {{ e.title }}{% if e.location %} · *{{ e.location }}*{% endif %}
-              {%- endif %}
-              {% endfor %}
+              {% set d = states.sensor.itslearning_today.attributes if states.sensor.itslearning_today is defined else {} %}
+              {% set ev = d.get('events', []) %}{% set pl = d.get('plans', []) %}{% set tk = d.get('tasks', []) %}
+              {% if (ev + pl + tk) | count == 0 %}
+              *Inget särskilt inlagt idag*
               {% endif %}
+              {% for e in ev %}
+              📝 **{{ e.subject or e.course }}: {{ e.title }}**{% if e.time %} · {{ e.time }}{% endif %}
+              {% if e.description %}<font color="gray">{{ e.description[:160] }}</font>{% endif %}
+              {% endfor %}
+              {% for t in tk %}
+              📚 **{{ t.title }}** · {{ t.subject }} · lämnas {{ t.deadline_local[11:] }}
+              {% endfor %}
+              {% for p in pl %}
+              📖 **{{ p.subject }}:** {{ p.name }}
+              {% if p.description %}<font color="gray">{{ p.description[:200] | replace('\n', ' · ') }}</font>{% endif %}
+              {% endfor %}
           - type: heading
             heading: I morgon
             icon: mdi:calendar-arrow-right
           - type: markdown
             content: |
-              {% set ev = state_attr('sensor.itslearning_schedule_tomorrow', 'events') or [] %}
-              {% if ev | count == 0 %}
-              *Inga lektioner i morgon*
-              {% else %}
-              {% for e in ev %}
-              {{ e.time }} · {{ e.title }}{% if e.location %} · *{{ e.location }}*{% endif %}
-              {% endfor %}
+              {% set d = states.sensor.itslearning_tomorrow.attributes if states.sensor.itslearning_tomorrow is defined else {} %}
+              {% set ev = d.get('events', []) %}{% set pl = d.get('plans', []) %}{% set tk = d.get('tasks', []) %}
+              {% if (ev + pl + tk) | count == 0 %}
+              *Inget särskilt inlagt i morgon*
               {% endif %}
+              {% for e in ev %}
+              📝 **{{ e.subject or e.course }}: {{ e.title }}**{% if e.time %} · {{ e.time }}{% endif %}
+              {% if e.description %}<font color="gray">{{ e.description[:160] }}</font>{% endif %}
+              {% endfor %}
+              {% for t in tk %}
+              📚 **{{ t.title }}** · {{ t.subject }} · lämnas {{ t.deadline_local[11:] }}
+              {% endfor %}
+              {% for p in pl %}
+              📖 **{{ p.subject }}:** {{ p.name }}
+              {% endfor %}
 
-      # ------------------------------------------------------------ LÄXOR
+      # ================================================================ VECKA
       - type: grid
         cards:
           - type: heading
-            heading: Läxor
+            heading: Planering denna vecka
+            icon: mdi:notebook-outline
+            badges:
+              - type: entity
+                entity: sensor.itslearning_plans_this_week
+          - type: markdown
+            content: |
+              {% set plans = state_attr('sensor.itslearning_plans_this_week', 'plans') or [] %}
+              {% if plans | count == 0 %}
+              *Ingen planering inlagd för veckan*
+              {% else %}
+              {% for wd, items in plans | groupby('weekday') | sort(attribute='list.0.date') %}
+              **{{ wd | capitalize }}**
+              {% for p in items %}
+              - **{{ p.subject }}:** {{ p.name }}{% if p.description %}<br><font color="gray">{{ p.description[:180] | replace('\n', ' · ') }}</font>{% endif %}
+              {% endfor %}
+              {% endfor %}
+              {% endif %}
+          - type: markdown
+            content: |
+              {% set plans = state_attr('sensor.itslearning_plans_next_week', 'plans') or [] %}
+              <details><summary><b>Nästa vecka ({{ plans | count }})</b></summary>
+
+              {% for p in plans %}
+              - {{ p.weekday | capitalize }} · **{{ p.subject }}:** {{ p.name }}
+              {% endfor %}
+              </details>
+
+      # ================================================================ LÄXOR & PROV
+      - type: grid
+        cards:
+          - type: heading
+            heading: Läxor & prov
             icon: mdi:book-open-variant
           - type: markdown
             content: |
-              {% set over = state_attr('sensor.itslearning_overdue_tasks', 'tasks') or [] %}
+              {% set ev = state_attr('sensor.itslearning_upcoming_events', 'events') or [] %}
               {% set up = state_attr('sensor.itslearning_upcoming_tasks', 'tasks') or [] %}
-              {% if over | count > 0 %}
-              ### ⚠️ Försenade
-              {% for t in over %}
-              - <font color="#e53935">**{{ t.title }}**</font> · {{ t.course }} · {{ t.deadline_local }}
-              {% endfor %}
+              {% set over = state_attr('sensor.itslearning_overdue_tasks', 'tasks') or [] %}
+              {% macro dot(n) %}{% if n <= 0 %}🔴{% elif n == 1 %}🟠{% elif n <= 3 %}🟡{% else %}⚪{% endif %}{% endmacro %}
+              {% if ev | count == 0 and up | count == 0 %}
+              *Inga läxförhör, prov eller deadlines de närmaste två veckorna*
               {% endif %}
-              ### Kommande
-              {% if up | count == 0 %}
-              *Inga läxor med deadline just nu*
-              {% else %}
+              {% for e in ev %}
+              {{ dot(e.days_left) }} **{{ e.day | capitalize }}** · {{ e.subject or e.course }}: **{{ e.title }}**{% if e.time %} ({{ e.time }}){% endif %}
+              {% if e.description %}<br><font color="gray">{{ e.description[:160] }}</font>{% endif %}
+              {% endfor %}
               {% for t in up %}
-              {%- set d = t.days_left %}
-              - {% if d == 0 %}🔴 **idag**{% elif d == 1 %}🟠 **i morgon**{% elif d <= 3 %}🟡 om {{ d }} dagar{% else %}⚪ {{ t.deadline_local[:10] }}{% endif %} · [{{ t.title }}]({{ t.url }}) · {{ t.course }}
+              {{ dot(t.days_left) }} **{{ t.day | capitalize }}** · {{ t.subject }}: [{{ t.title }}]({{ t.url }}) – lämnas {{ t.deadline_local[11:] }}
+              {% endfor %}
+              {% if over | count > 0 %}
+              ---
+              **⚠️ Försenade**
+              {% for t in over %}
+              - <font color="#e53935">[{{ t.title }}]({{ t.url }})</font> · {{ t.subject }} · {{ t.deadline_local[:10] }}
               {% endfor %}
               {% endif %}
           - type: markdown
@@ -99,21 +146,38 @@ views:
               <details><summary><b>Uppgifter utan deadline ({{ nd | count }})</b></summary>
 
               {% for t in nd %}
-              - [{{ t.title }}]({{ t.url }}) · {{ t.course }}
+              - {{ t.subject }}: [{{ t.title }}]({{ t.url }})
               {% endfor %}
               </details>
 
-      # ------------------------------------------------------------ KALENDER
+      # ================================================================ NYHETER
       - type: grid
-        column_span: 1
         cards:
           - type: heading
-            heading: Vecka
+            heading: Nyheter från lärarna
+            icon: mdi:newspaper-variant-outline
+          - type: markdown
+            content: |
+              {% set news = state_attr('sensor.itslearning_news', 'news') or [] %}
+              {% for n in news[:8] %}
+              **{{ n.subject or n.course }}** · <font color="gray">{{ n.day }}{% if n.author %} · {{ n.author }}{% endif %}</font>
+              [{{ n.text[:140] }}]({{ n.url }})
+              {% else %}
+              *Inga nyheter*
+              {% endfor %}
+
+      # ================================================================ KALENDER + GOOGLE
+      - type: grid
+        column_span: 2
+        cards:
+          - type: heading
+            heading: Kalender
             icon: mdi:calendar-week
           - type: calendar
             initial_view: listWeek
             entities:
-              - calendar.itslearning_schedule
+              - calendar.itslearning_events
+              - calendar.itslearning_plans
               - calendar.itslearning_deadlines
           - type: heading
             heading: Google Kalender

@@ -30,6 +30,21 @@
   },
   "entity": {
     "sensor": {
+      "today": {
+        "name": "Idag"
+      },
+      "tomorrow": {
+        "name": "I morgon"
+      },
+      "upcoming_events": {
+        "name": "Kommande händelser"
+      },
+      "plans_this_week": {
+        "name": "Planering denna vecka"
+      },
+      "plans_next_week": {
+        "name": "Planering nästa vecka"
+      },
       "upcoming_tasks": {
         "name": "Kommande uppgifter"
       },
@@ -45,17 +60,8 @@
       "next_deadline": {
         "name": "Nästa deadline"
       },
-      "schedule_today": {
-        "name": "Schema idag"
-      },
-      "schedule_tomorrow": {
-        "name": "Schema i morgon"
-      },
-      "next_lesson": {
-        "name": "Nästa lektion"
-      },
-      "next_school_day_start": {
-        "name": "Nästa skoldag börjar"
+      "news": {
+        "name": "Nyheter senaste veckan"
       },
       "unread_notifications": {
         "name": "Olästa notiser"
@@ -65,8 +71,11 @@
       "deadlines": {
         "name": "Deadlines"
       },
-      "schedule": {
-        "name": "Schema"
+      "events": {
+        "name": "Händelser"
+      },
+      "plans": {
+        "name": "Planering"
       }
     }
   },
@@ -81,7 +90,7 @@
         },
         "include": {
           "name": "Vad som ska synkas",
-          "description": "Deadlines, schema eller båda."
+          "description": "Deadlines, händelser (läxförhör, prov) och/eller planering."
         },
         "days_ahead": {
           "name": "Dagar framåt",
@@ -93,8 +102,9 @@
   "selector": {
     "include": {
       "options": {
-        "deadlines": "Läxor/deadlines",
-        "schedule": "Schema/lektioner"
+        "deadlines": "Uppgifter med deadline",
+        "events": "Händelser (läxförhör, prov …)",
+        "plans": "Planering (lektionsplaner)"
       }
     }
   }
