@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from html import unescape
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
 
 import aiohttp
 from yarl import URL
@@ -41,6 +41,14 @@ USER_AGENT = (
 MAX_STEPS = 25
 FEDERATION_HINT = "Skolfederation"
 PASSWORD_AUTHMECH_HINTS = ("anv%c3%a4ndarnamn", "användarnamn", "username", "password", "l%c3%b6senord")
+# Scopes are space separated. First the ones we need, then broader/narrower fallbacks.
+SCOPE_CANDIDATES = (
+    "Tasks Notifications Person Courses Calendar",
+    "All",
+    "Tasks Notifications",
+    "Tasks",
+    "SCOPE",
+)
 ALLOW_WORDS = ("tillåt", "godkänn", "acceptera", "allow", "accept", "approve", "authorize", "ja", "yes", "fortsätt", "continue", "ok")
 DENY_WORDS = ("neka", "avbryt", "avvisa", "deny", "cancel", "reject", "decline", "nej")
 COMPLETED_STATUSES = {"completed", "finished", "submitted", "done", "handedin", "evaluated", "assessed"}
@@ -360,22 +368,28 @@ class ItslearningClient:
     async def login(self) -> Tokens:
         """Full browser-like login. Use sparingly; refresh tokens are preferred."""
         self.session.cookie_jar.clear()
-        params = {
-            "client_id": CLIENT_ID,
-            "state": secrets.token_hex(8),
-            "response_type": "code",
-            "redirect_uri": REDIRECT_URI,
-            "scope": "SCOPE",
-        }
+        self._state = secrets.token_hex(8)
         try:
-            code = await self._run_login_flow(f"{self.base_url}/oauth2/authorize.aspx?{urlencode(params)}")
+            code = await self._run_login_flow(self._authorize_url(SCOPE_CANDIDATES[0]))
         except _CodeReceived as rec:
             code = rec.code
         self.tokens = await self._token_request({"grant_type": "authorization_code", "code": code})
         return self.tokens
 
+    def _authorize_url(self, scope: str) -> str:
+        params = {
+            "client_id": CLIENT_ID,
+            "state": self._state,
+            "response_type": "code",
+            "redirect_uri": REDIRECT_URI,
+            "scope": scope,
+        }
+        return f"{self.base_url}/oauth2/authorize.aspx?{urlencode(params, quote_via=quote)}"
+
     async def _run_login_flow(self, start_url: str) -> str:
         url, html = await self._request("GET", start_url)
+        scope_idx = 0
+        consent_posted_for: int | None = None
         password_sent = False
         federation_clicked = False
         reauthorized = False
@@ -403,11 +417,25 @@ class ItslearningClient:
             if password_sent and "itslearning" in host and not page.forms_with_saml() and not reauthorized:
                 reauthorized = True
                 _LOGGER.debug("→ Inloggad i itslearning, begär OAuth-koden igen")
-                url, html = await self._request("GET", start_url)
+                url, html = await self._request("GET", self._authorize_url(SCOPE_CANDIDATES[scope_idx]))
                 continue
 
             # 0b) OAuth consent page ("Den här appen vill få åtkomst …") -> allow.
             if "itslearning" in host and "/oauth2/authorize" in url.lower() and page.forms:
+                _LOGGER.debug("Sidans text: %s", page.visible_text[:300])
+                if consent_posted_for == scope_idx:
+                    # Same page again: itslearning did not accept this scope set.
+                    scope_idx += 1
+                    if scope_idx >= len(SCOPE_CANDIDATES):
+                        raise ItslearningAuthError(
+                            "itslearning godkände inte app-åtkomsten. Sidans text: " + page.visible_text[:200]
+                        )
+                    _LOGGER.debug("→ Provar scope %r", SCOPE_CANDIDATES[scope_idx])
+                    seen.pop(key, None)
+                    url, html = await self._request("GET", self._authorize_url(SCOPE_CANDIDATES[scope_idx]))
+                    continue
+                consent_posted_for = scope_idx
+                _LOGGER.debug("Scope: %r", SCOPE_CANDIDATES[scope_idx])
                 url, html = await self._approve_consent(url, html, page)
                 continue
 
