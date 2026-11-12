@@ -97,13 +97,14 @@ class _PageParser(HTMLParser):
             self.forms.append(self._form)
         elif tag == "button" and self._form is not None:
             self._button = {"name": a.get("name", ""), "type": (a.get("type") or "submit").lower(),
-                            "value": a.get("value", ""), "label": "", "onclick": a.get("onclick", "")}
+                            "value": a.get("value", ""), "label": "", "onclick": a.get("onclick", ""), "tag": "button"}
             self._form.inputs.append(self._button)
         elif tag in ("input", "select", "textarea") and self._form is not None:
             if tag == "input" or a.get("name"):
                 self._form.inputs.append(
                     {"name": a.get("name", ""), "type": a.get("type", "text").lower(), "value": a.get("value", ""),
-                     "label": a.get("value", ""), "onclick": a.get("onclick", "")}
+                     "label": a.get("value", ""), "onclick": a.get("onclick", ""),
+                     "checked": "1" if ("checked" in a or "selected" in a) else "", "tag": tag}
                 )
         elif tag == "a":
             self._link_href = a.get("href", "")
@@ -167,6 +168,8 @@ def _form_fields(form: _Form) -> dict[str, str]:
         if not name or i.get("type") in ("submit", "button", "image", "reset"):
             continue
         if i.get("type") in ("checkbox", "radio"):
+            if i.get("checked"):
+                data[name] = i.get("value") or "on"
             continue
         data[name] = i.get("value", "")
     return data
@@ -307,7 +310,9 @@ class ItslearningClient:
             pass
         return URL(u)
 
-    async def _request(self, method: str, url: str, data: dict[str, str] | None = None) -> tuple[str, str]:
+    async def _request(
+        self, method: str, url: str, data: dict[str, str] | None = None, referer: str | None = None
+    ) -> tuple[str, str]:
         """Do a request and follow redirects by hand.
 
         Returns (final_url, html). Raises _CodeReceived when itslearning
@@ -315,7 +320,15 @@ class ItslearningClient:
         """
         for _ in range(MAX_STEPS):
             try:
-                async with self.session.request(method, self._url(url), data=data, allow_redirects=False) as resp:
+                headers = {}
+                if referer:
+                    rp = urlparse(referer)
+                    headers["Referer"] = referer
+                    if method == "POST":
+                        headers["Origin"] = f"{rp.scheme}://{rp.netloc}"
+                async with self.session.request(
+                    method, self._url(url), data=data, allow_redirects=False, headers=headers
+                ) as resp:
                     _LOGGER.debug("  %s %s -> %s", method, _short(url), resp.status)
                     if resp.status in (301, 302, 303, 307, 308):
                         location = resp.headers.get("Location", "")
@@ -473,6 +486,20 @@ class ItslearningClient:
         controls = [i for i in form.inputs if i.get("type") in ("submit", "button", "image")]
         labels = [f"{c.get('name')}={c.get('label') or c.get('value')}" for c in controls]
         _LOGGER.debug("Godkännandesida, knappar: %s | länkar: %s", labels, [t for _, t in page.links])
+        _LOGGER.debug(
+            "Formulär: action=%s method=%s fält=%s",
+            form.action, form.method,
+            [
+                f"{i.get('tag', 'input')}:{i.get('type')}:{i.get('name')}"
+                + (":checked" if i.get("checked") else "")
+                + (f":onclick={i.get('onclick')[:120]}" if i.get("onclick") else "")
+                + ("" if i.get("name", "").startswith("__") or i.get("type") == "password" else f"={i.get('value', '')[:40]}")
+                for i in form.inputs
+            ],
+        )
+        for m in re.finditer(r"<script[^>]*>(.*?)</script>", html, re.S | re.I):
+            if "SaveOrCancel" in m.group(1) or "oauth" in m.group(1).lower():
+                _LOGGER.debug("Skript: %s", " ".join(m.group(1).split())[:400])
 
         def has(words: tuple[str, ...], text: str) -> bool:
             words_in = re.findall(r"[a-zåäö]+", re.sub(r"([a-z])([A-Z])", r"\1 \2", text).lower())
@@ -500,10 +527,11 @@ class ItslearningClient:
             if len(non_deny) == 1:
                 choice = non_deny[0]
         if choice is not None:
-            pb = re.search(r"__doPostBack\(\s*['\"]([^'\"]+)['\"]", choice.get("onclick", ""))
-            if pb:
+            onclick = choice.get("onclick", "")
+            pb = re.search(r"(?:__doPostBack|WebForm_PostBackOptions)\(\s*['\"]([^'\"]+)['\"]", onclick)
+            if pb and "WebForm_PostBackOptions" not in onclick:
                 data["__EVENTTARGET"], data["__EVENTARGUMENT"] = pb.group(1), ""
-            elif choice.get("name"):
+            if choice.get("name"):
                 data[choice["name"]] = choice.get("value", "")
             _LOGGER.debug("→ Godkänner app-åtkomst (%s)", choice.get("label") or choice.get("value") or choice.get("name"))
             return await self._submit(url, form, data)
@@ -519,9 +547,9 @@ class ItslearningClient:
         action = urljoin(page_url, form.action) if form.action else page_url
         self._check_for_code(action)
         if form.method == "post":
-            return await self._request("POST", action, data)
+            return await self._request("POST", action, data, referer=page_url)
         sep = "&" if "?" in action else "?"
-        return await self._request("GET", f"{action}{sep}{urlencode(data)}")
+        return await self._request("GET", f"{action}{sep}{urlencode(data)}", referer=page_url)
 
     @staticmethod
     def _federation_postback_target(html: str, links: list[tuple[str, str]]) -> str | None:
