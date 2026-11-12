@@ -22,6 +22,7 @@ import secrets
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from html import unescape
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
@@ -383,7 +384,7 @@ class ItslearningClient:
 
             # 3) itslearning login page -> "Logga in med Skolfederation".
             if "itslearning" in host and not federation_clicked:
-                target = self._federation_postback_target(html)
+                target = self._federation_postback_target(html, page.links)
                 if target and page.forms:
                     form = page.forms[0]
                     data = _form_fields(form)
@@ -410,7 +411,7 @@ class ItslearningClient:
                 continue
 
             # 6) Single plain form without visible fields (JS auto-submit).
-            if len(page.forms) == 1 and all(i.get("type") in ("hidden", "submit") for i in page.forms[0].inputs):
+            if "itslearning" not in host and len(page.forms) == 1 and all(i.get("type") in ("hidden", "submit") for i in page.forms[0].inputs):
                 f = page.forms[0]
                 if f.action or f.inputs:
                     url, html = await self._submit(url, f, _form_fields(f))
@@ -431,12 +432,19 @@ class ItslearningClient:
         return await self._request("GET", f"{action}{sep}{urlencode(data)}")
 
     @staticmethod
-    def _federation_postback_target(html: str) -> str | None:
-        # <a href="javascript:__doPostBack('ctl00$...$federatedLoginButtons$ctl00$ctl00','')">Logga in med Skolfederation</a>
-        for m in re.finditer(r"__doPostBack\(\s*'([^']+)'[^>]*>(.*?)</a>", html, re.S | re.I):
-            if FEDERATION_HINT.lower() in m.group(2).lower():
+    def _federation_postback_target(html: str, links: list[tuple[str, str]]) -> str | None:
+        # <a href="javascript:__doPostBack(&#39;ctl00$...$federatedLoginButtons$ctl00$ctl00&#39;,&#39;&#39;)">
+        #   Logga in med Skolfederation</a>   (quotes are HTML-encoded in the real page)
+        pat = re.compile(r"__doPostBack\(\s*['\"]([^'\"]+)['\"]")
+        for href, text in links:
+            m = pat.search(href)
+            if m and FEDERATION_HINT.lower() in text.lower():
                 return m.group(1)
-        m = re.search(r"__doPostBack\(\s*'([^']*federatedLoginButtons[^']*)'", html)
+        for href, _ in links:
+            m = pat.search(href)
+            if m and "federatedLoginButtons" in m.group(1):
+                return m.group(1)
+        m = re.search(r"([\w$]*federatedLoginButtons[\w$]*)", unescape(html))
         return m.group(1) if m else None
 
     # ---- tokens ----------------------------------------------------------- #
