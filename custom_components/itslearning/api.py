@@ -21,7 +21,7 @@ import re
 import secrets
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html import unescape
 from html.parser import HTMLParser
 from typing import Any
@@ -252,6 +252,65 @@ def parse_datetime(value: Any) -> datetime | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)  # API "…Utc" fields are UTC
     return dt
+
+
+@dataclass
+class CalendarItem:
+    id: str
+    title: str
+    start: datetime
+    end: datetime
+    course: str
+    location: str
+    description: str
+    url: str
+    kind: str
+    all_day: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "start": self.start.isoformat(),
+            "end": self.end.isoformat(),
+            "course": self.course,
+            "location": self.location,
+            "kind": self.kind,
+            "url": self.url,
+        }
+
+
+def _first(j: dict[str, Any], *keys: str) -> Any:
+    for k in keys:
+        v = j.get(k)
+        if v not in (None, ""):
+            return v
+    return None
+
+
+def _event_from_json(j: dict[str, Any]) -> CalendarItem | None:
+    start = parse_datetime(_first(j, "FromDate", "StartDate", "Start", "FromDateUtc", "StartDateUtc", "EventDate"))
+    if start is None:
+        return None
+    end = parse_datetime(_first(j, "ToDate", "EndDate", "End", "ToDateUtc", "EndDateUtc")) or start
+    all_day = bool(_first(j, "IsAllDay", "AllDay", "IsFullDay") or False)
+    if end <= start:
+        end = start + (timedelta(days=1) if all_day else timedelta(minutes=30))
+    course = _first(j, "CourseTitle", "CourseName", "LocationTitle", "Course", "ContextTitle") or ""
+    if isinstance(course, dict):
+        course = course.get("Title") or ""
+    return CalendarItem(
+        id=str(_first(j, "EventId", "CalendarEventId", "Id", "ElementId") or f"{start.isoformat()}-{j.get('Title')}"),
+        title=str(_first(j, "EventTitle", "Title", "Name", "Subject") or "Händelse"),
+        start=start,
+        end=end,
+        course=str(course),
+        location=str(_first(j, "Location", "Room", "Place") or ""),
+        description=str(_first(j, "Description", "Text") or ""),
+        url=str(_first(j, "Url", "ContentUrl") or ""),
+        kind=str(_first(j, "EventType", "Type", "ElementType") or ""),
+        all_day=all_day,
+    )
 
 
 def _task_from_json(j: dict[str, Any]) -> Task:
@@ -688,6 +747,31 @@ class ItslearningClient:
     async def fetch_unread_notifications(self) -> int:
         data = await self._get("/restapi/personal/notifications/v1/", {"PageIndex": 0, "PageSize": 50})
         return sum(1 for n in (data or {}).get("EntityArray", []) if not n.get("IsRead", True))
+
+    async def fetch_calendar(self, days_back: int = 1, days_ahead: int = 21) -> list[CalendarItem]:
+        """Calendar events (lessons, tests, school events) around today."""
+        now = datetime.now(timezone.utc)
+        start = now - timedelta(days=days_back)
+        stop = now + timedelta(days=days_ahead)
+        items: list[CalendarItem] = []
+        for page in range(10):
+            data = await self._get(
+                "/restapi/personal/calendar/events/v1",
+                {"fromDate": start.strftime("%Y-%m-%dT00:00:00"), "PageIndex": page, "PageSize": 100},
+            )
+            rows = (data or {}).get("EntityArray", []) if isinstance(data, dict) else (data or [])
+            if page == 0 and rows:
+                _LOGGER.debug("Kalenderfält: %s", sorted(rows[0].keys()))
+            for row in rows:
+                item = _event_from_json(row)
+                if item and item.start < stop:
+                    items.append(item)
+            total = (data or {}).get("Total") if isinstance(data, dict) else None
+            if not rows or len(rows) < 100 or (total is not None and (page + 1) * 100 >= total):
+                break
+            if rows and (last := _event_from_json(rows[-1])) and last.start >= stop:
+                break
+        return sorted(items, key=lambda i: i.start)
 
     async def fetch_user_name(self) -> str | None:
         try:

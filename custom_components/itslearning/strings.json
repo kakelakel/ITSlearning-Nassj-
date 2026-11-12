@@ -39,8 +39,23 @@
       "overdue_tasks": {
         "name": "Overdue tasks"
       },
+      "tasks_without_deadline": {
+        "name": "Tasks without deadline"
+      },
       "next_deadline": {
         "name": "Next deadline"
+      },
+      "schedule_today": {
+        "name": "Schedule today"
+      },
+      "schedule_tomorrow": {
+        "name": "Schedule tomorrow"
+      },
+      "next_lesson": {
+        "name": "Next lesson"
+      },
+      "next_school_day_start": {
+        "name": "Next school day starts"
       },
       "unread_notifications": {
         "name": "Unread notifications"
@@ -49,6 +64,37 @@
     "calendar": {
       "deadlines": {
         "name": "Deadlines"
+      },
+      "schedule": {
+        "name": "Schedule"
+      }
+    }
+  },
+  "services": {
+    "sync_calendar": {
+      "name": "Sync to calendar",
+      "description": "Adds itslearning deadlines and/or schedule to another calendar, e.g. Google Calendar. Only new events are added, no duplicates.",
+      "fields": {
+        "target_calendar": {
+          "name": "Target calendar",
+          "description": "Calendar to add events to (must be writable)."
+        },
+        "include": {
+          "name": "What to sync",
+          "description": "Deadlines, schedule or both."
+        },
+        "days_ahead": {
+          "name": "Days ahead",
+          "description": "How far ahead to sync."
+        }
+      }
+    }
+  },
+  "selector": {
+    "include": {
+      "options": {
+        "deadlines": "Homework/deadlines",
+        "schedule": "Schedule/lessons"
       }
     }
   }

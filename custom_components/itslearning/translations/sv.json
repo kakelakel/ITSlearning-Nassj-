@@ -39,8 +39,23 @@
       "overdue_tasks": {
         "name": "Försenade uppgifter"
       },
+      "tasks_without_deadline": {
+        "name": "Uppgifter utan deadline"
+      },
       "next_deadline": {
         "name": "Nästa deadline"
+      },
+      "schedule_today": {
+        "name": "Schema idag"
+      },
+      "schedule_tomorrow": {
+        "name": "Schema i morgon"
+      },
+      "next_lesson": {
+        "name": "Nästa lektion"
+      },
+      "next_school_day_start": {
+        "name": "Nästa skoldag börjar"
       },
       "unread_notifications": {
         "name": "Olästa notiser"
@@ -49,6 +64,37 @@
     "calendar": {
       "deadlines": {
         "name": "Deadlines"
+      },
+      "schedule": {
+        "name": "Schema"
+      }
+    }
+  },
+  "services": {
+    "sync_calendar": {
+      "name": "Synka till kalender",
+      "description": "Lägger till itslearnings deadlines och/eller schema i en annan kalender, t.ex. Google Kalender. Bara nya händelser läggs till, inga dubbletter.",
+      "fields": {
+        "target_calendar": {
+          "name": "Målkalender",
+          "description": "Kalendern som händelserna ska läggas i (måste gå att skriva till)."
+        },
+        "include": {
+          "name": "Vad som ska synkas",
+          "description": "Deadlines, schema eller båda."
+        },
+        "days_ahead": {
+          "name": "Dagar framåt",
+          "description": "Hur långt framåt som synkas."
+        }
+      }
+    }
+  },
+  "selector": {
+    "include": {
+      "options": {
+        "deadlines": "Läxor/deadlines",
+        "schedule": "Schema/lektioner"
       }
     }
   }

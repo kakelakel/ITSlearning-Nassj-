@@ -1,0 +1,66 @@
+# itslearning – synk till Google Kalender + läxpåminnelse
+#
+# 1. Lägg till i configuration.yaml (om det inte redan finns):
+#      homeassistant:
+#        packages: !include_dir_named packages
+# 2. Kopiera den här filen till config/packages/itslearning.yaml
+# 3. Byt calendar.DIN_GOOGLE_KALENDER och notify.mobile_app_DIN_TELEFON nedan.
+# 4. Starta om Home Assistant (eller Utvecklarverktyg → YAML → ladda om allt).
+
+script:
+  itslearning_synka_google:
+    alias: "itslearning: synka till Google Kalender"
+    icon: mdi:calendar-sync
+    sequence:
+      - action: itslearning.sync_calendar
+        data:
+          target_calendar: calendar.DIN_GOOGLE_KALENDER   # ← byt
+          include:
+            - deadlines
+            # - schedule      # ta bort # om lektionerna också ska in i Google
+          days_ahead: 14
+        response_variable: result
+      - action: persistent_notification.create
+        data:
+          title: itslearning → Google
+          message: >-
+            {{ result.created }} nya händelser, {{ result.already_there }} fanns redan
+            {%- if result.failed %}, {{ result.failed }} misslyckades (se loggen){% endif %}.
+
+automation:
+  - id: itslearning_synka_till_google_kalender
+    alias: "itslearning: synka till Google Kalender"
+    description: Lägger in nya läxor/deadlines i Google Kalender varje timme.
+    triggers:
+      - trigger: time_pattern
+        minutes: "17"
+      - trigger: homeassistant
+        event: start
+    actions:
+      - delay: "00:01:00"
+      - action: itslearning.sync_calendar
+        data:
+          target_calendar: calendar.DIN_GOOGLE_KALENDER   # ← byt
+          include:
+            - deadlines
+          days_ahead: 14
+    mode: single
+
+  - id: itslearning_laxpaminnelse
+    alias: "itslearning: läxor till i morgon"
+    triggers:
+      - trigger: time
+        at: "18:00:00"
+    conditions:
+      - condition: numeric_state
+        entity_id: sensor.itslearning_due_tomorrow
+        above: 0
+    actions:
+      - action: notify.mobile_app_DIN_TELEFON   # ← byt
+        data:
+          title: Läxor till i morgon
+          message: |
+            {% for t in state_attr('sensor.itslearning_due_tomorrow', 'tasks') %}
+            • {{ t.title }} ({{ t.course }}) – {{ t.deadline_local[11:] }}
+            {% endfor %}
+    mode: single

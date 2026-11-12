@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import ItslearningAuthError, ItslearningClient, ItslearningError, Task
+from .api import CalendarItem, ItslearningAuthError, ItslearningClient, ItslearningError, Task
 from .const import CONF_TOKENS, DEFAULT_SCAN_INTERVAL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,6 +19,8 @@ _LOGGER = logging.getLogger(__name__)
 class ItslearningData:
     tasks: list[Task]
     unread_notifications: int | None
+    events: list[CalendarItem] = field(default_factory=list)
+    events_ok: bool = True
 
 
 class ItslearningCoordinator(DataUpdateCoordinator[ItslearningData]):
@@ -39,6 +41,13 @@ class ItslearningCoordinator(DataUpdateCoordinator[ItslearningData]):
             except ItslearningError as err:
                 _LOGGER.debug("Could not fetch notifications: %s", err)
                 unread = None
+            try:
+                events = await self.client.fetch_calendar()
+                events_ok = True
+            except ItslearningError as err:
+                _LOGGER.warning("Could not fetch itslearning calendar: %s", err)
+                events = self.data.events if self.data else []
+                events_ok = False
         except ItslearningAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except ItslearningError as err:
@@ -50,4 +59,4 @@ class ItslearningCoordinator(DataUpdateCoordinator[ItslearningData]):
                 self.config_entry,
                 data={**self.config_entry.data, CONF_TOKENS: self.client.tokens.as_dict()},
             )
-        return ItslearningData(tasks=tasks, unread_notifications=unread)
+        return ItslearningData(tasks=tasks, unread_notifications=unread, events=events, events_ok=events_ok)

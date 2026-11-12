@@ -53,6 +53,16 @@ async def show(client) -> None:
         dl = t.deadline.astimezone().strftime("%a %d %b %H:%M") if t.deadline else "ingen deadline"
         print(f"  - {dl:20}  {t.title}  [{t.course}]  status={t.status!r}")
     try:
+        events = await client.fetch_calendar(days_back=0, days_ahead=7)
+        print(f"✓ {len(events)} kalenderhändelser kommande 7 dagar:")
+        for e in events[:25]:
+            when = e.start.astimezone().strftime("%a %d %b %H:%M") + "–" + e.end.astimezone().strftime("%H:%M")
+            print(f"  - {when:24}  {e.title}  [{e.course}]  {e.location}  typ={e.kind!r}")
+        if not events:
+            print("  (inga – kör med --debug och skicka raden 'Kalenderfält' om schemat borde synas)")
+    except api.ItslearningError as err:
+        print(f"  (kalendern gick inte att hämta: {err})")
+    try:
         print(f"✓ Olästa notiser: {await client.fetch_unread_notifications()}")
     except api.ItslearningError as err:
         print(f"  (notiser gick inte att hämta: {err})")
