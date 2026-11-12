@@ -65,6 +65,9 @@
       },
       "unread_notifications": {
         "name": "Olästa notiser"
+      },
+      "work_areas": {
+        "name": "Pågående arbetsområden"
       }
     },
     "calendar": {
@@ -75,7 +78,7 @@
         "name": "Händelser"
       },
       "plans": {
-        "name": "Planering"
+        "name": "Lektioner och arbetsområden"
       }
     }
   },

@@ -7,7 +7,7 @@
  *
  * Every style option can be set in the visual editor or in YAML; see README.
  */
-const CARD_VERSION = "0.4.0";
+const CARD_VERSION = "0.5.0";
 
 /* ------------------------------------------------------------------ presets */
 const PRESETS = {
@@ -86,6 +86,10 @@ const DEFAULTS = {
   description_lines: 2,
   show_subject_color: true,
   show_icons: true,
+  show_badges: true,
+  badge_style: "pill",            // pill | text | none
+  show_areas: true,               // ongoing work areas as a fold-out under day/week views
+  categories: [],                 // e.g. [test, quiz, homework] to show only those
   group_by_day: true,
   link_items: true,
   icon_style: "mdi",              // mdi | emoji
@@ -123,14 +127,30 @@ const DEFAULTS = {
 const VIEW_TITLES = {
   day: "Skolan", today: "Idag", tomorrow: "I morgon", homework: "Läxor och prov",
   week: "Planering den här veckan", next_week: "Planering nästa vecka", news: "Från lärarna",
-  next: "", chips: "", overview: "Skolan",
+  next: "", chips: "", overview: "Skolan", areas: "Pågående arbetsområden",
 };
 
 const VIEW_ICONS = {
   day: "mdi:school-outline", today: "mdi:calendar-today", tomorrow: "mdi:calendar-arrow-right",
   homework: "mdi:book-open-variant", week: "mdi:notebook-outline", next_week: "mdi:notebook-outline",
-  news: "mdi:newspaper-variant-outline", overview: "mdi:school-outline",
+  news: "mdi:newspaper-variant-outline", overview: "mdi:school-outline", areas: "mdi:map-outline",
 };
+
+// What a row is. Colours/labels can be overridden with e.g. `test_color: [r,g,b]`.
+const CATEGORIES = {
+  test:       { label: "Prov",         icon: "mdi:file-document-edit-outline",   emoji: "📝", color: [229, 57, 53],   rank: 0 },
+  quiz:       { label: "Förhör",       icon: "mdi:account-voice",                emoji: "🗣️", color: [245, 124, 0],   rank: 1 },
+  homework:   { label: "Läxa",         icon: "mdi:book-open-page-variant-outline", emoji: "📚", color: [214, 158, 0], rank: 2 },
+  assignment: { label: "Inlämning",    icon: "mdi:tray-arrow-up",                emoji: "📤", color: [142, 91, 181],  rank: 3 },
+  overdue:    { label: "Försenad",     icon: "mdi:alert-circle-outline",         emoji: "⚠️", color: [229, 57, 53],   rank: 4 },
+  event:      { label: "Händelse",     icon: "mdi:calendar-star",                emoji: "📅", color: [96, 125, 139],  rank: 5 },
+  lesson:     { label: "Lektion",      icon: "mdi:human-male-board",             emoji: "📖", color: [30, 136, 229],  rank: 6 },
+  area:       { label: "Arbetsområde", icon: "mdi:map-outline",                  emoji: "🗺️", color: [120, 144, 156], rank: 7 },
+  material:   { label: "Material",     icon: "mdi:paperclip",                    emoji: "📎", color: [0, 137, 123],   rank: 8 },
+  bulletin:   { label: "Anslag",       icon: "mdi:bullhorn-outline",             emoji: "📣", color: [94, 53, 177],   rank: 9 },
+  news:       { label: "Nyhet",        icon: "mdi:newspaper-variant-outline",    emoji: "📰", color: [96, 125, 139],  rank: 10 },
+};
+const CATEGORY_KEYS = Object.keys(CATEGORIES);
 
 const WEEKDAYS_SHORT = ["mån", "tis", "ons", "tor", "fre", "lör", "sön"];
 const WEEKDAYS = ["måndag", "tisdag", "onsdag", "torsdag", "fredag", "lördag", "söndag"];
@@ -213,7 +233,7 @@ class ItslearningCard extends HTMLElement {
     const s = this._config?.entity_suffix || "";
     return [
       "today", "tomorrow", "upcoming_events", "upcoming_tasks", "overdue_tasks", "tasks_without_deadline",
-      "plans_this_week", "plans_next_week", "news", "unread_notifications", "due_tomorrow",
+      "plans_this_week", "plans_next_week", "news", "unread_notifications", "due_tomorrow", "work_areas",
     ].map((k) => `sensor.itslearning_${k}${s}`);
   }
 
@@ -239,6 +259,31 @@ class ItslearningCard extends HTMLElement {
 
   /* ------------------------------------------------------------ data model */
   // Every row: {kind, date(iso for grouping), sort, subject, title, time, description, url, color, urgency}
+  _cat(key) {
+    const c = this._config;
+    const base = CATEGORIES[key] || CATEGORIES.event;
+    return { ...base, color: c[`${key}_color`] ?? base.color, label: c[`${key}_label`] ?? base.label };
+  }
+
+  _row(category, fields) {
+    const cat = this._cat(category);
+    const date = fields.date;
+    return {
+      category, icon: cat.icon, emoji: cat.emoji, rank: cat.rank,
+      dayKey: date ? localDate(date).getTime() : Infinity, t: date ? new Date(date).getTime() : Infinity,
+      days: date ? daysFromToday(date) : null, ...fields,
+    };
+  }
+
+  _sort(rows) {
+    return rows.sort((a, z) => a.dayKey - z.dayKey || a.rank - z.rank || a.t - z.t);
+  }
+
+  _filter(rows) {
+    const only = this._config.categories;
+    return Array.isArray(only) && only.length ? rows.filter((r) => only.includes(r.category)) : rows;
+  }
+
   _rowsDay(key) {
     const c = this._config;
     const b = this._state(key)?.attributes || {};
@@ -246,36 +291,35 @@ class ItslearningCard extends HTMLElement {
     if (c.show_events) for (const e of b.events || []) rows.push(this._eventRow(e));
     if (c.show_tasks) for (const t of b.tasks || []) rows.push(this._taskRow(t));
     if (c.show_plans) for (const p of b.plans || []) rows.push(this._planRow(p));
-    return rows.sort((a, z) => a.sort - z.sort);
+    return this._sort(this._filter(rows));
   }
 
   _eventRow(e) {
-    return {
-      kind: "event", icon: "mdi:clipboard-text-clock-outline", emoji: "📝",
-      date: e.start, sort: new Date(e.start).getTime() + (e.all_day ? 0 : 1),
-      subject: e.subject || e.course, title: e.title,
+    return this._row(e.category || "event", {
+      date: e.start, subject: e.subject || e.course, title: e.title,
       time: e.all_day ? "" : `${hhmm(e.start)}–${hhmm(e.end)}`,
-      description: e.description, url: e.url, color: e.color, days: daysFromToday(e.start),
-    };
+      description: e.description, url: e.url, color: e.color,
+    });
   }
 
   _taskRow(t, overdue = false) {
-    return {
-      kind: overdue ? "overdue" : "task", icon: overdue ? "mdi:alert-circle-outline" : "mdi:book-clock-outline",
-      emoji: overdue ? "⚠️" : "📚", date: t.deadline, sort: t.deadline ? new Date(t.deadline).getTime() + 2 : Infinity,
-      subject: t.subject || t.course, title: t.title,
-      time: t.deadline ? `lämnas ${hhmm(t.deadline)}` : "",
-      description: "", url: t.url, color: t.color, days: t.deadline ? daysFromToday(t.deadline) : null,
-    };
+    return this._row(overdue ? "overdue" : t.category || "assignment", {
+      date: t.deadline, subject: t.subject || t.course, title: t.title,
+      time: t.deadline ? (overdue ? `skulle lämnas ${localDate(t.deadline).getDate()}/${localDate(t.deadline).getMonth() + 1}` : `lämnas ${hhmm(t.deadline)}`) : "",
+      description: "", url: t.url, color: t.color,
+    });
   }
 
   _planRow(p) {
-    return {
-      kind: "plan", icon: "mdi:notebook-outline", emoji: "📖",
-      date: p.start, sort: new Date(p.start).getTime() + 3,
-      subject: p.subject || p.course, title: p.name, time: "",
-      description: p.description, url: p.url, color: p.color, days: daysFromToday(p.start),
-    };
+    const area = (p.category || "lesson") === "area";
+    return this._row(area ? "area" : "lesson", {
+      date: p.start, subject: p.subject || p.course, title: p.name || p.title,
+      time: area ? p.weeks || "" : "", description: p.description, url: p.url, color: p.color,
+    });
+  }
+
+  _areaRows(list) {
+    return (list || []).map((p) => this._planRow({ ...p, category: "area" }));
   }
 
   _rowsHomework() {
@@ -287,17 +331,18 @@ class ItslearningCard extends HTMLElement {
     if (c.show_tasks)
       for (const t of this._attr("upcoming_tasks", "tasks"))
         if (daysFromToday(t.deadline) <= c.days_ahead) rows.push(this._taskRow(t));
-    return rows.sort((a, z) => a.sort - z.sort);
+    return this._sort(this._filter(rows));
   }
 
   _rowsWeek(key) {
-    return this._attr(key, "plans").map((p) => this._planRow(p)).sort((a, z) => a.sort - z.sort);
+    return this._sort(this._filter(this._attr(key, "plans").map((p) => this._planRow(p))));
   }
 
   /* --------------------------------------------------------------- styling */
   _urgencyColor(days, kind) {
     const c = this._config;
     if (kind === "overdue" || (days !== null && days < 0 && kind !== "plan")) return color(c.overdue_color);
+    if (kind === "plan" && days !== null && days < 0) return "var(--itsl-secondary)";
     if (days === 0) return color(c.today_color);
     if (days === 1) return color(c.tomorrow_color);
     if (days !== null && days <= 3) return color(c.soon_color);
@@ -387,8 +432,12 @@ class ItslearningCard extends HTMLElement {
       .ic ha-icon { --mdc-icon-size: 1.15em; }
       .body { min-width: 0; flex: 1; }
       .line { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; line-height: 1.35; }
-      .subj { color: var(--itsl-secondary); font-size: 0.9em; }
-      .ttl { font-weight: 500; overflow-wrap: anywhere; }
+      .subj { color: var(--itsl-secondary); font-size: 0.86em; }
+      .badge { font-size: 0.76em; font-weight: 600; line-height: 1; white-space: nowrap; color: color-mix(in srgb, var(--bc) 72%, var(--itsl-text)); }
+      .badge.b-pill { padding: 0.3em 0.62em; border-radius: 999px; background: color-mix(in srgb, var(--bc) 24%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bc) 35%, transparent); }
+      .badge.b-text { padding: 0; }
+      .ttl { font-weight: 500; overflow-wrap: anywhere; line-height: 1.3; margin-top: 2px; }
       .tm { margin-left: auto; font-size: 0.82em; color: var(--itsl-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
       .desc {
         margin-top: 2px; font-size: 0.86em; color: var(--itsl-secondary); line-height: 1.4;
@@ -429,16 +478,20 @@ class ItslearningCard extends HTMLElement {
     const bar = c.show_subject_color
       ? `<span class="sb" style="background:${esc(r.color || "var(--itsl-accent)")}"></span>`
       : "";
+    const cat = this._cat(r.category);
+    const catCol = color(cat.color);
     const icon = c.show_icons
-      ? `<span class="ic" aria-hidden="true">${c.icon_style === "emoji" ? r.emoji : `<ha-icon icon="${r.icon}"></ha-icon>`}</span>`
+      ? `<span class="ic" aria-hidden="true" style="color:${catCol}">${c.icon_style === "emoji" ? r.emoji : `<ha-icon icon="${r.icon}"></ha-icon>`}</span>`
       : "";
+    const badge = c.show_badges && c.badge_style !== "none"
+      ? `<span class="badge b-${esc(c.badge_style)}" style="--bc:${catCol}">${esc(cat.label)}</span>` : "";
     const desc = c.show_description && r.description ? `<div class="desc">${esc(r.description)}</div>` : "";
     const subj = r.subject && r.subject.toLowerCase() !== String(r.title).toLowerCase()
       ? `<span class="subj">${esc(r.subject)}</span>` : "";
     const tm = r.time ? `<span class="tm">${esc(r.time)}</span>` : "";
     const tint = c.item_style === "bar" && r.color
       ? ` style="background:color-mix(in srgb, ${esc(r.color)} ${Math.max(8, c.item_background_opacity + 6)}%, transparent)"` : "";
-    return `<${tag} class="row s-${esc(c.item_style)}"${href}${tint}>${bar}${icon}<div class="body"><div class="line">${subj}<span class="ttl">${esc(r.title)}</span>${tm}</div>${desc}</div></${tag}>`;
+    return `<${tag} class="row s-${esc(c.item_style)}"${href}${tint}>${bar}${icon}<div class="body"><div class="line">${badge}${subj}${tm}</div><div class="ttl">${esc(r.title)}</div>${desc}</div></${tag}>`;
   }
 
   _listHtml(rows, { group = this._config.group_by_day, empty = "" } = {}) {
@@ -451,12 +504,13 @@ class ItslearningCard extends HTMLElement {
       const key = r.date ? localDate(r.date).getTime() : "none";
       const last = groups[groups.length - 1];
       if (last && last.key === key) last.rows.push(r);
-      else groups.push({ key, rows: [r], date: r.date, days: r.days, kind: r.kind });
+      else groups.push({ key, rows: [r], date: r.date, days: r.days });
     }
     return `<div class="list">${groups
       .map((g) => {
         if (g.key === "none") return `<div class="group nodate"><div class="items">${g.rows.map((r) => this._rowHtml(r)).join("")}</div></div>`;
-        const col = this._urgencyColor(g.days, g.rows.every((r) => r.kind === "plan") ? "plan" : g.kind);
+        const onlyPlans = g.rows.every((r) => r.category === "lesson" || r.category === "area");
+        const col = this._urgencyColor(g.days, onlyPlans ? "plan" : g.rows[0].category);
         return `<div class="group"><div class="day" style="color:${col}">${esc(dayLabel(g.date))}</div><div class="items">${g.rows
           .map((r) => this._rowHtml(r))
           .join("")}</div></div>`;
@@ -479,6 +533,14 @@ class ItslearningCard extends HTMLElement {
     return `<div class="block"><div class="bt">${label}</div>${this._listHtml(rows, { group: false, empty })}</div>`;
   }
 
+  _areasFold(list, label = "Pågående arbetsområden") {
+    const c = this._config;
+    if (!c.show_areas || !c.show_plans) return "";
+    const rows = this._filter(this._areaRows(list));
+    if (!rows.length) return "";
+    return `<details><summary>${esc(label)} (${rows.length})</summary>${this._listHtml(rows, { group: false })}</details>`;
+  }
+
   _homeworkHtml() {
     const c = this._config;
     const rows = this._rowsHomework();
@@ -498,19 +560,21 @@ class ItslearningCard extends HTMLElement {
 
   _weekHtml(key, empty) {
     const rows = this._rowsWeek(key);
-    // Week view groups by weekday name, not "Idag/I morgon"
-    return this._listHtml(rows, { empty });
+    return this._listHtml(rows, { empty }) + this._areasFold(this._attr(key, "areas"), "Arbetsområden den här veckan");
   }
 
   _newsHtml() {
     const c = this._config;
     const news = this._attr("news", "news").slice(0, c.max_items);
     if (!news.length) return `<div class="empty">${esc(c.empty_text || "Inga nyheter")}</div>`;
-    const rows = news.map((n) => ({
-      kind: "news", icon: "mdi:bullhorn-outline", emoji: "📣", date: n.published, sort: 0,
-      subject: n.subject || n.course, title: n.text, time: n.published ? dayLabel(n.published) : "",
-      description: n.author || "", url: n.url, color: n.color, days: null,
-    }));
+    const rows = this._filter(news.map((n) => ({
+      ...this._row(n.category || "news", {
+        date: n.published, subject: n.subject || n.course, title: n.text,
+        description: n.author || "", url: n.url, color: n.color,
+      }),
+      time: n.published ? dayLabel(n.published) : "", days: null,
+    })));
+    if (!rows.length) return `<div class="empty">${esc(c.empty_text || "Inga nyheter")}</div>`;
     return this._listHtml(rows, { group: false });
   }
 
@@ -526,7 +590,7 @@ class ItslearningCard extends HTMLElement {
     return `<${tag} class="next"${href}>
       <span class="day" style="color:${col}">${esc(dayLabel(r.date))}${r.time ? `<br><span class="tm" style="margin:0">${esc(r.time)}</span>` : ""}</span>
       ${c.show_subject_color ? `<span style="align-self:stretch;width:${c.subject_bar_width}px;border-radius:3px;background:${esc(r.color || "var(--itsl-accent)")}"></span>` : ""}
-      <div class="body"><div class="line">${r.subject ? `<span class="subj">${esc(r.subject)}</span>` : ""}${more}</div><div class="ttl">${esc(r.title)}</div>
+      <div class="body"><div class="line">${c.show_badges && c.badge_style !== "none" ? `<span class="badge b-${esc(c.badge_style)}" style="--bc:${color(this._cat(r.category).color)}">${esc(this._cat(r.category).label)}</span>` : ""}${r.subject ? `<span class="subj">${esc(r.subject)}</span>` : ""}${more}</div><div class="ttl">${esc(r.title)}</div>
       ${c.show_description && r.description ? `<div class="desc" style="-webkit-line-clamp:1">${esc(r.description)}</div>` : ""}</div></${tag}>`;
   }
 
@@ -539,8 +603,10 @@ class ItslearningCard extends HTMLElement {
       ["overdue_tasks", "mdi:alert-circle-outline", "Försenade", c.overdue_color],
       ["news", "mdi:newspaper-variant-outline", "Nyheter", null],
       ["unread_notifications", "mdi:bell-outline", "Olästa", null],
+      ["work_areas", "mdi:map-outline", "Arbetsområden", null],
+      ["plans_this_week", "mdi:human-male-board", "Lektioner i veckan", null],
     ];
-    const chips = (c.chips || defs.map((d) => d[0]))
+    const chips = (c.chips || defs.slice(0, 5).map((d) => d[0]))
       .map((k) => defs.find((d) => d[0] === k))
       .filter(Boolean)
       .map(([k, icon, label, col]) => {
@@ -569,12 +635,19 @@ class ItslearningCard extends HTMLElement {
     switch (c.view) {
       case "today": {
         const rows = this._rowsDay("today");
-        body = this._header(title, rows.length) + this._listHtml(rows, { group: false, empty: "Inget inlagt idag" });
+        body = this._header(title, rows.length) + this._listHtml(rows, { group: false, empty: "Inget inlagt idag" })
+          + this._areasFold(this._attr("today", "areas"));
         break;
       }
       case "tomorrow": {
         const rows = this._rowsDay("tomorrow");
-        body = this._header(title, rows.length) + this._listHtml(rows, { group: false, empty: "Inget inlagt i morgon" });
+        body = this._header(title, rows.length) + this._listHtml(rows, { group: false, empty: "Inget inlagt i morgon" })
+          + this._areasFold(this._attr("tomorrow", "areas"));
+        break;
+      }
+      case "areas": {
+        const rows = this._filter(this._areaRows(this._attr("work_areas", "areas")));
+        body = this._header(title, rows.length) + this._listHtml(rows, { group: false, empty: "Inga pågående arbetsområden" });
         break;
       }
       case "homework":
@@ -601,6 +674,7 @@ class ItslearningCard extends HTMLElement {
         body = this._header(title)
           + this._dayBlock("today", "Idag", "Inget inlagt idag")
           + this._dayBlock("tomorrow", "I morgon", "Inget inlagt i morgon")
+          + this._areasFold(this._attr("work_areas", "areas"))
           + `<div class="block"><div class="bt">Läxor och prov</div>${this._homeworkHtml()}</div>`
           + `<div class="block"><div class="bt">Planering den här veckan</div>${this._weekHtml("plans_this_week", "Ingen planering inlagd")}</div>`
           + `<div class="block"><div class="bt">Från lärarna</div>${this._newsHtml()}</div>`;
@@ -609,7 +683,8 @@ class ItslearningCard extends HTMLElement {
       default:
         body = this._header(title)
           + this._dayBlock("today", "Idag", "Inget inlagt idag")
-          + this._dayBlock("tomorrow", "I morgon", "Inget inlagt i morgon");
+          + this._dayBlock("tomorrow", "I morgon", "Inget inlagt i morgon")
+          + this._areasFold(this._attr("work_areas", "areas"));
     }
     const wrapped = c.view === "next" || c.view === "chips" ? body : `<div class="wrap">${body}</div>`;
     this.shadowRoot.innerHTML = `<style>${this._css()}</style><ha-card>${wrapped}</ha-card>`;
@@ -631,7 +706,8 @@ const EDITOR_SCHEMA = [
     name: "view", selector: { select: { mode: "dropdown", options: opt([
       ["day", "Idag och i morgon"], ["today", "Idag"], ["tomorrow", "I morgon"], ["homework", "Läxor och prov"],
       ["week", "Planering den här veckan"], ["next_week", "Planering nästa vecka"], ["news", "Nyheter från lärarna"],
-      ["next", "Nästa sak (en rad)"], ["chips", "Snabbsiffror (chips)"], ["overview", "Allt i ett kort"],
+      ["areas", "Pågående arbetsområden"], ["next", "Nästa sak (en rad)"], ["chips", "Snabbsiffror (chips)"],
+      ["overview", "Allt i ett kort"],
     ]) } },
   },
   {
@@ -655,10 +731,17 @@ const EDITOR_SCHEMA = [
         { name: "show_description", selector: { boolean: {} } },
         { name: "show_subject_color", selector: { boolean: {} } },
         { name: "show_icons", selector: { boolean: {} } },
+        { name: "show_badges", selector: { boolean: {} } },
+        { name: "show_areas", selector: { boolean: {} } },
         { name: "group_by_day", selector: { boolean: {} } },
         { name: "link_items", selector: { boolean: {} } },
       ] },
       { name: "icon_style", selector: { select: { mode: "dropdown", options: opt([["mdi", "Ikoner"], ["emoji", "Emoji"]]) } } },
+      { name: "badge_style", selector: { select: { mode: "dropdown", options: opt([["pill", "Etikett med bakgrund"], ["text", "Färgad text"], ["none", "Ingen etikett"]]) } } },
+      { name: "categories", selector: { select: { multiple: true, mode: "list", options: opt([
+        ["test", "Prov"], ["quiz", "Förhör"], ["homework", "Läxa"], ["assignment", "Inlämning"], ["event", "Händelse"],
+        ["lesson", "Lektion"], ["area", "Arbetsområde"], ["material", "Material"], ["bulletin", "Anslag"], ["news", "Nyhet"],
+      ]) } } },
       { type: "grid", schema: [
         { name: "max_items", selector: { number: { min: 1, max: 30, mode: "box" } } },
         { name: "days_ahead", selector: { number: { min: 1, max: 28, mode: "box" } } },
@@ -713,6 +796,11 @@ const EDITOR_SCHEMA = [
     ],
   },
   {
+    type: "expandable", title: "Färger per kategori", icon: "mdi:tag-multiple-outline", schema: CATEGORY_KEYS
+      .filter((k) => k !== "overdue")
+      .map((k) => ({ name: `${k}_color`, selector: { color_rgb: {} } })),
+  },
+  {
     type: "expandable", title: "Färger för hur bråttom det är", icon: "mdi:clock-alert-outline", schema: [
       { name: "today_color", selector: { color_rgb: {} } },
       { name: "tomorrow_color", selector: { color_rgb: {} } },
@@ -724,6 +812,9 @@ const EDITOR_SCHEMA = [
 ];
 
 const LABELS = {
+  ...Object.fromEntries(CATEGORY_KEYS.map((k) => [`${k}_color`, CATEGORIES[k].label])),
+  show_badges: "Etikett (Prov, Läxa …)", badge_style: "Etikettens stil", show_areas: "Arbetsområden (utfällbart)",
+  categories: "Visa bara dessa (inget val = alla)",
   view: "Vad kortet visar", preset: "Stil", title: "Rubrik (tomt = standard)", icon: "Ikon",
   show_header: "Visa rubrik", show_count: "Visa antal", show_events: "Läxförhör och prov", show_tasks: "Uppgifter med deadline",
   show_plans: "Planering", show_overdue: "Försenade", show_no_deadline: "Utan deadline", show_description: "Beskrivningar",

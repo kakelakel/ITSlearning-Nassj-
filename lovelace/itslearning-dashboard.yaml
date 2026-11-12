@@ -1,187 +1,52 @@
 # itslearning – skolpanel
 # Inställningar → Instrumentpaneler → Lägg till instrumentpanel → "Ny från början"
 # → öppna den → ⋮ → Redigera → ⋮ → Raw-konfigurationsredigerare → klistra in allt.
-# Bara inbyggda kort, inget behöver installeras via HACS.
+# Byt "preset" på korten för en annan stil (glass, neon, minimal, solid, notebook,
+# sunset, ocean, midnight) eller ta bort raden för att följa ditt tema.
 title: Skola
 views:
   - title: Skola
     path: skola
     icon: mdi:school
     type: sections
-    max_columns: 4
-    badges:
-      - type: entity
-        entity: sensor.itslearning_tomorrow
-        name: I morgon
-        show_name: true
-        color: orange
-      - type: entity
-        entity: sensor.itslearning_upcoming_events
-        name: Prov & läxförhör
-        show_name: true
-        color: purple
-      - type: entity
-        entity: sensor.itslearning_overdue_tasks
-        name: Försenade
-        show_name: true
-        color: red
-      - type: entity
-        entity: sensor.itslearning_news
-        name: Nyheter (7 d)
-        show_name: true
-      - type: entity
-        entity: sensor.itslearning_unread_notifications
-        name: Olästa
-        show_name: true
+    max_columns: 3
     sections:
-      # ================================================================ DAG
+      - type: grid
+        column_span: 3
+        cards:
+          - type: custom:itslearning-card
+            view: chips
+            preset: glass
       - type: grid
         cards:
-          - type: heading
-            heading: Idag
-            icon: mdi:calendar-today
-          - type: markdown
-            content: |
-              {% set d = states.sensor.itslearning_today.attributes if states.sensor.itslearning_today is defined else {} %}
-              {% set ev = d.get('events', []) %}{% set pl = d.get('plans', []) %}{% set tk = d.get('tasks', []) %}
-              {% if (ev + pl + tk) | count == 0 %}
-              *Inget särskilt inlagt idag*
-              {% endif %}
-              {% for e in ev %}
-              📝 **{{ e.subject or e.course }}: {{ e.title }}**{% if e.time %} · {{ e.time }}{% endif %}
-              {% if e.description %}<font color="gray">{{ e.description[:160] }}</font>{% endif %}
-              {% endfor %}
-              {% for t in tk %}
-              📚 **{{ t.title }}** · {{ t.subject }} · lämnas {{ t.deadline_local[11:] }}
-              {% endfor %}
-              {% for p in pl %}
-              📖 **{{ p.subject }}:** {{ p.name }}
-              {% if p.description %}<font color="gray">{{ p.description[:200] | replace('\n', ' · ') }}</font>{% endif %}
-              {% endfor %}
-          - type: heading
-            heading: I morgon
-            icon: mdi:calendar-arrow-right
-          - type: markdown
-            content: |
-              {% set d = states.sensor.itslearning_tomorrow.attributes if states.sensor.itslearning_tomorrow is defined else {} %}
-              {% set ev = d.get('events', []) %}{% set pl = d.get('plans', []) %}{% set tk = d.get('tasks', []) %}
-              {% if (ev + pl + tk) | count == 0 %}
-              *Inget särskilt inlagt i morgon*
-              {% endif %}
-              {% for e in ev %}
-              📝 **{{ e.subject or e.course }}: {{ e.title }}**{% if e.time %} · {{ e.time }}{% endif %}
-              {% if e.description %}<font color="gray">{{ e.description[:160] }}</font>{% endif %}
-              {% endfor %}
-              {% for t in tk %}
-              📚 **{{ t.title }}** · {{ t.subject }} · lämnas {{ t.deadline_local[11:] }}
-              {% endfor %}
-              {% for p in pl %}
-              📖 **{{ p.subject }}:** {{ p.name }}
-              {% endfor %}
-
-      # ================================================================ VECKA
+          - type: custom:itslearning-card
+            view: today
+            preset: glass
+          - type: custom:itslearning-card
+            view: tomorrow
+            preset: glass
       - type: grid
         cards:
-          - type: heading
-            heading: Planering denna vecka
-            icon: mdi:notebook-outline
-            badges:
-              - type: entity
-                entity: sensor.itslearning_plans_this_week
-          - type: markdown
-            content: |
-              {% set plans = state_attr('sensor.itslearning_plans_this_week', 'plans') or [] %}
-              {% if plans | count == 0 %}
-              *Ingen planering inlagd för veckan*
-              {% else %}
-              {% for wd, items in plans | groupby('weekday') | sort(attribute='list.0.date') %}
-              **{{ wd | capitalize }}**
-              {% for p in items %}
-              - **{{ p.subject }}:** {{ p.name }}{% if p.description %}<br><font color="gray">{{ p.description[:180] | replace('\n', ' · ') }}</font>{% endif %}
-              {% endfor %}
-              {% endfor %}
-              {% endif %}
-          - type: markdown
-            content: |
-              {% set plans = state_attr('sensor.itslearning_plans_next_week', 'plans') or [] %}
-              <details><summary><b>Nästa vecka ({{ plans | count }})</b></summary>
-
-              {% for p in plans %}
-              - {{ p.weekday | capitalize }} · **{{ p.subject }}:** {{ p.name }}
-              {% endfor %}
-              </details>
-
-      # ================================================================ LÄXOR & PROV
+          - type: custom:itslearning-card
+            view: homework
+            preset: glass
+          - type: custom:itslearning-card
+            view: news
+            preset: glass
+            max_items: 6
       - type: grid
         cards:
-          - type: heading
-            heading: Läxor & prov
-            icon: mdi:book-open-variant
-          - type: markdown
-            content: |
-              {% set ev = state_attr('sensor.itslearning_upcoming_events', 'events') or [] %}
-              {% set up = state_attr('sensor.itslearning_upcoming_tasks', 'tasks') or [] %}
-              {% set over = state_attr('sensor.itslearning_overdue_tasks', 'tasks') or [] %}
-              {% macro dot(n) %}{% if n <= 0 %}🔴{% elif n == 1 %}🟠{% elif n <= 3 %}🟡{% else %}⚪{% endif %}{% endmacro %}
-              {% if ev | count == 0 and up | count == 0 %}
-              *Inga läxförhör, prov eller deadlines de närmaste två veckorna*
-              {% endif %}
-              {% for e in ev %}
-              {{ dot(e.days_left) }} **{{ e.day | capitalize }}** · {{ e.subject or e.course }}: **{{ e.title }}**{% if e.time %} ({{ e.time }}){% endif %}
-              {% if e.description %}<br><font color="gray">{{ e.description[:160] }}</font>{% endif %}
-              {% endfor %}
-              {% for t in up %}
-              {{ dot(t.days_left) }} **{{ t.day | capitalize }}** · {{ t.subject }}: [{{ t.title }}]({{ t.url }}) – lämnas {{ t.deadline_local[11:] }}
-              {% endfor %}
-              {% if over | count > 0 %}
-              ---
-              **⚠️ Försenade**
-              {% for t in over %}
-              - <font color="#e53935">[{{ t.title }}]({{ t.url }})</font> · {{ t.subject }} · {{ t.deadline_local[:10] }}
-              {% endfor %}
-              {% endif %}
-          - type: markdown
-            content: |
-              {% set nd = state_attr('sensor.itslearning_tasks_without_deadline', 'tasks') or [] %}
-              <details><summary><b>Uppgifter utan deadline ({{ nd | count }})</b></summary>
-
-              {% for t in nd %}
-              - {{ t.subject }}: [{{ t.title }}]({{ t.url }})
-              {% endfor %}
-              </details>
-
-      # ================================================================ NYHETER
-      - type: grid
-        cards:
-          - type: heading
-            heading: Nyheter från lärarna
-            icon: mdi:newspaper-variant-outline
-          - type: markdown
-            content: |
-              {% set news = state_attr('sensor.itslearning_news', 'news') or [] %}
-              {% for n in news[:8] %}
-              **{{ n.subject or n.course }}** · <font color="gray">{{ n.day }}{% if n.author %} · {{ n.author }}{% endif %}</font>
-              [{{ n.text[:140] }}]({{ n.url }})
-              {% else %}
-              *Inga nyheter*
-              {% endfor %}
-
-      # ================================================================ KALENDER + GOOGLE
-      - type: grid
-        column_span: 2
-        cards:
-          - type: heading
-            heading: Kalender
-            icon: mdi:calendar-week
+          - type: custom:itslearning-card
+            view: week
+            preset: glass
+          - type: custom:itslearning-card
+            view: areas
+            preset: glass
           - type: calendar
             initial_view: listWeek
             entities:
               - calendar.itslearning_events
-              - calendar.itslearning_plans
               - calendar.itslearning_deadlines
-          - type: heading
-            heading: Google Kalender
-            icon: mdi:google
           - type: tile
             entity: script.itslearning_synka_google
             name: Synka till Google nu
@@ -189,6 +54,3 @@ views:
             tap_action:
               action: perform-action
               perform_action: script.itslearning_synka_google
-          - type: tile
-            entity: automation.itslearning_synka_till_google_kalender
-            name: Automatisk synk (varje timme)

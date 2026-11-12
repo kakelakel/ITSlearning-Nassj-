@@ -248,6 +248,64 @@ def html_to_text(html: str | None) -> str:
     return "\n".join(line for line in lines if line).strip()
 
 
+# ---------------------------------------------------------------- categories
+# What kind of thing a row is, so dashboards can tell homework from material.
+CATEGORY_LABELS = {
+    "test": "Prov", "quiz": "Förhör", "homework": "Läxa", "assignment": "Inlämning",
+    "event": "Händelse", "lesson": "Lektion", "area": "Arbetsområde", "material": "Material",
+    "bulletin": "Anslag", "news": "Nyhet",
+}
+AREA_MIN_DAYS = 4  # a plan spanning this many days or more is a work area, not a lesson
+
+_RE_TEST = re.compile(r"\b(prov|provet|test|diagnos|nationella|np)\b", re.I)
+_RE_QUIZ = re.compile(r"(förhör|glosor|glosförhör|läxförhör|quiz)", re.I)
+_RE_HOMEWORK = re.compile(
+    r"(\b(läxa|läxan|läxor|hemläxa|hemuppgift|kunna|plugga|öva på|läs|läsa|repetera)\b|\b(s|sid|sida|tb|ab)\.?\s?\d)",
+    re.I,
+)
+_RE_SUBMIT = re.compile(r"(inlämning|lämna in|deadline)", re.I)
+
+
+def categorize_event(title: str, description: str) -> str:
+    text = f"{title} {description}"
+    if _RE_QUIZ.search(text):
+        return "quiz"
+    if _RE_TEST.search(title) or (_RE_TEST.search(description) and not _RE_HOMEWORK.search(title)):
+        return "test"
+    if _RE_HOMEWORK.search(text):
+        return "homework"
+    if _RE_SUBMIT.search(text):
+        return "assignment"
+    return "event"
+
+
+def categorize_task(title: str, homework: bool) -> str:
+    if _RE_QUIZ.search(title):
+        return "quiz"
+    if _RE_TEST.search(title):
+        return "test"
+    if homework or _RE_HOMEWORK.search(title):
+        return "homework"
+    return "assignment"
+
+
+def categorize_news(text: str) -> str:
+    t = text.lower()
+    if "har lagt till" in t or "nytt material" in t or "har publicerat" in t or "har delat" in t:
+        return "material"
+    if "anslag" in t:
+        return "bulletin"
+    return "news"
+
+
+def strip_repeated_title(title: str, description: str) -> str:
+    """Drop a first description line that just repeats the title."""
+    lines = description.splitlines()
+    while lines and lines[0].strip(" .:").lower() == title.strip(" .:").lower():
+        lines.pop(0)
+    return "\n".join(lines).strip()
+
+
 @dataclass
 class Task:
     id: int
@@ -269,10 +327,16 @@ class Task:
     def subject(self) -> str:
         return subject_name(self.course)
 
+    @property
+    def category(self) -> str:
+        return categorize_task(self.title, self.homework)
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "title": self.title,
+            "category": self.category,
+            "category_label": CATEGORY_LABELS[self.category],
             "course": self.course,
             "subject": self.subject,
             "status": self.status,
@@ -325,17 +389,23 @@ class CalendarItem:
     def subject(self) -> str:
         return subject_name(self.course) if self.course else ""
 
+    @property
+    def category(self) -> str:
+        return categorize_event(self.title, self.description)
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "title": self.title,
+            "category": self.category,
+            "category_label": CATEGORY_LABELS[self.category],
             "start": self.start.isoformat(),
             "end": self.end.isoformat(),
             "all_day": self.all_day,
             "course": self.course,
             "subject": self.subject,
             "location": self.location,
-            "description": self.description[:300],
+            "description": strip_repeated_title(self.title, self.description)[:300],
             "kind": self.kind,
             "url": self.url,
             "color": self.color,
@@ -360,11 +430,24 @@ class Plan:
     def subject(self) -> str:
         return subject_name(self.course)
 
+    @property
+    def span_days(self) -> int:
+        """Calendar days covered (plans run 00:01–23:59 local)."""
+        return max(1, round((self.stop - self.start).total_seconds() / 86400))
+
+    @property
+    def category(self) -> str:
+        return "area" if self.span_days >= AREA_MIN_DAYS else "lesson"
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
-            "description": self.description[:500],
+            "title": self.name,
+            "category": self.category,
+            "category_label": CATEGORY_LABELS[self.category],
+            "span_days": self.span_days,
+            "description": strip_repeated_title(self.name, self.description)[:500],
             "start": self.start.isoformat(),
             "stop": self.stop.isoformat(),
             "course": self.course,
@@ -384,10 +467,17 @@ class News:
     url: str
     color: str = ""
 
+    @property
+    def category(self) -> str:
+        return categorize_news(self.text)
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "text": self.text[:200],
+            "title": self.text[:200],
+            "category": self.category,
+            "category_label": CATEGORY_LABELS[self.category],
             "course": self.course,
             "subject": subject_name(self.course) if self.course else "",
             "published": self.published.isoformat() if self.published else None,

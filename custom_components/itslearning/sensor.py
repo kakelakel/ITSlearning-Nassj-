@@ -85,6 +85,7 @@ SENSORS: tuple[ItslearningSensorDescription, ...] = (
         native_unit_of_measurement="st",
         value_fn=lambda d: len(sel.plans_in_week(d)),
         attrs_fn=lambda d: {"plans": [sel.fmt_plan(p) for p in sel.plans_in_week(d)[:MAX_ITEMS]],
+                            "areas": [sel.fmt_plan(p) for p in sel.areas_in_week(d)[:MAX_ITEMS]],
                             "week": sel.week_bounds()[0].isocalendar()[1]},
     ),
     ItslearningSensorDescription(
@@ -94,7 +95,16 @@ SENSORS: tuple[ItslearningSensorDescription, ...] = (
         native_unit_of_measurement="st",
         value_fn=lambda d: len(sel.plans_in_week(d, 1)),
         attrs_fn=lambda d: {"plans": [sel.fmt_plan(p) for p in sel.plans_in_week(d, 1)[:MAX_ITEMS]],
+                            "areas": [sel.fmt_plan(p) for p in sel.areas_in_week(d, 1)[:MAX_ITEMS]],
                             "week": sel.week_bounds(1)[0].isocalendar()[1]},
+    ),
+    ItslearningSensorDescription(
+        key="work_areas",
+        translation_key="work_areas",
+        icon="mdi:map-outline",
+        native_unit_of_measurement="st",
+        value_fn=lambda d: len(sel.current_areas(d)),
+        attrs_fn=lambda d: {"areas": [sel.fmt_plan(p) for p in sel.current_areas(d)[:MAX_ITEMS]]},
     ),
     # --- Tasks ------------------------------------------------------------------
     ItslearningSensorDescription(

@@ -69,7 +69,20 @@ def _plan_days(p: Plan) -> tuple[date, date]:
 
 
 def plans_on(data: ItslearningData, day: date) -> list[Plan]:
-    return [p for p in data.plans if _plan_days(p)[0] <= day <= _plan_days(p)[1]]
+    """Lesson plans for a day (work areas spanning many days are left out)."""
+    return [p for p in data.plans if p.category == "lesson" and _plan_days(p)[0] <= day <= _plan_days(p)[1]]
+
+
+def areas_on(data: ItslearningData, day: date) -> list[Plan]:
+    """Ongoing work areas (plans spanning several days) that cover a day."""
+    return sorted(
+        (p for p in data.plans if p.category == "area" and _plan_days(p)[0] <= day <= _plan_days(p)[1]),
+        key=lambda p: (p.subject, p.name),
+    )
+
+
+def current_areas(data: ItslearningData) -> list[Plan]:
+    return areas_on(data, _today())
 
 
 def week_bounds(offset_weeks: int = 0) -> tuple[date, date]:
@@ -79,8 +92,17 @@ def week_bounds(offset_weeks: int = 0) -> tuple[date, date]:
 
 
 def plans_in_week(data: ItslearningData, offset_weeks: int = 0) -> list[Plan]:
+    """Lesson plans in a week (work areas are listed separately)."""
     mon, sun = week_bounds(offset_weeks)
-    return [p for p in data.plans if _plan_days(p)[0] <= sun and _plan_days(p)[1] >= mon]
+    return [p for p in data.plans if p.category == "lesson" and _plan_days(p)[0] <= sun and _plan_days(p)[1] >= mon]
+
+
+def areas_in_week(data: ItslearningData, offset_weeks: int = 0) -> list[Plan]:
+    mon, sun = week_bounds(offset_weeks)
+    return sorted(
+        (p for p in data.plans if p.category == "area" and _plan_days(p)[0] <= sun and _plan_days(p)[1] >= mon),
+        key=lambda p: (p.subject, p.name),
+    )
 
 
 # --------------------------------------------------------------- formatting
@@ -119,9 +141,13 @@ def fmt_plan(p: Plan) -> dict:
     d = p.as_dict()
     first, last = _plan_days(p)
     d["date"] = first.isoformat()
+    d["end_date"] = last.isoformat()
     d["day"] = _day_label(first) if first == last else f"{_day_label(first)}–{_day_label(last)}"
     d["weekday"] = WEEKDAYS[first.weekday()]
     d["days_left"] = (first - _today()).days
+    d["days_until_end"] = (last - _today()).days
+    w1, w2 = first.isocalendar()[1], last.isocalendar()[1]
+    d["weeks"] = f"v. {w1}" if w1 == w2 else f"v. {w1}–{w2}"
     return d
 
 
@@ -136,12 +162,14 @@ def _day_bundle(data: ItslearningData, day: date) -> dict:
     return {
         "date": day.isoformat(),
         "events": [fmt_event(e) for e in events_on(data, day)],
-        "plans": [fmt_plan(p) for p in plans_on(data, day)],
         "tasks": [fmt_task(t) for t in tasks],
+        "plans": [fmt_plan(p) for p in plans_on(data, day)],
+        "areas": [fmt_plan(p) for p in areas_on(data, day)],
     }
 
 
 def day_count(bundle: dict) -> int:
+    """Things to do or attend that day (ongoing work areas are not counted)."""
     return len(bundle["events"]) + len(bundle["plans"]) + len(bundle["tasks"])
 
 

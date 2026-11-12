@@ -28,10 +28,22 @@ async def async_setup_entry(
     async_add_entities([DeadlineCalendar(c), EventCalendar(c), PlanCalendar(c)])
 
 
+CATEGORY_EMOJI = {
+    "test": "📝", "quiz": "🗣️", "homework": "📚", "assignment": "📤", "event": "📅",
+    "lesson": "📖", "area": "🗺️",
+}
+
+
 def _label(subject: str, title: str) -> str:
     if subject and subject.lower() not in title.lower():
         return f"{subject}: {title}"
     return title
+
+
+def _summary(category: str, subject: str, title: str) -> str:
+    from .api import CATEGORY_LABELS
+
+    return f"{CATEGORY_EMOJI.get(category, '•')} {CATEGORY_LABELS.get(category, '')}: {_label(subject, title)}"
 
 
 def deadline_event(task: Task) -> CalendarEvent:
@@ -40,7 +52,7 @@ def deadline_event(task: Task) -> CalendarEvent:
         description += f"\n{task.url}"
     return CalendarEvent(
         start=task.deadline - DEADLINE_LENGTH, end=task.deadline,
-        summary=f"📚 {_label(task.subject, task.title)}", description=description, uid=f"itsl-task-{task.id}",
+        summary=_summary(task.category, task.subject, task.title), description=description, uid=f"itsl-task-{task.id}",
     )
 
 
@@ -56,7 +68,7 @@ def item_event(item: CalendarItem) -> CalendarEvent:
     if item.url:
         description = f"{description}\n{item.url}".strip()
     return CalendarEvent(
-        start=start, end=end, summary=f"📝 {_label(item.subject, item.title)}", description=description or None,
+        start=start, end=end, summary=_summary(item.category, item.subject, item.title), description=description or None,
         location=item.location or None, uid=f"itsl-event-{item.id}",
     )
 
@@ -70,7 +82,7 @@ def plan_event(plan: Plan) -> CalendarEvent:
     if plan.url:
         description = f"{description}\n{plan.url}".strip()
     return CalendarEvent(
-        start=start, end=end, summary=f"📖 {_label(plan.subject, plan.name)}",
+        start=start, end=end, summary=_summary(plan.category, plan.subject, plan.name),
         description=description or None, uid=f"itsl-plan-{plan.id}",
     )
 

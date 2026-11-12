@@ -17,7 +17,8 @@ itslearning har inget lektionsschema, det ligger oftast i ett annat system som S
 |---|---|
 | `sensor.itslearning_today` / `_tomorrow` | Allt för dagen: händelser, planering och deadlines (attributen `events`, `plans`, `tasks`). |
 | `sensor.itslearning_upcoming_events` | Läxförhör, prov och andra händelser kommande 14 dagar. |
-| `sensor.itslearning_plans_this_week` / `_next_week` | Lektionsplanering per kurs ("5.1 Liv i samspel – s. 126–133"). |
+| `sensor.itslearning_plans_this_week` / `_next_week` | Lektionsplanering per kurs ("5.1 Liv i samspel – s. 126–133"), med arbetsområden i attributet `areas`. |
+| `sensor.itslearning_work_areas` | Pågående arbetsområden, alltså planer som löper över flera veckor. |
 | `sensor.itslearning_upcoming_tasks` | Uppgifter med deadline framåt. |
 | `sensor.itslearning_due_tomorrow` | Uppgifter med deadline före midnatt i morgon. |
 | `sensor.itslearning_overdue_tasks` | Ej klara uppgifter där deadline har passerat. |
@@ -83,9 +84,27 @@ preset: glass
 | `homework` | Läxförhör, prov och deadlines, grupperat per dag. Visar även försenade och uppgifter utan deadline. |
 | `week` / `next_week` | Lektionsplanering per dag. |
 | `news` | Nyheter från lärarna. |
+| `areas` | Pågående arbetsområden, alltså planer som löper över flera veckor. |
 | `next` | En rad med nästa läxa eller prov. |
 | `chips` | Snabbsiffror: i morgon, prov, försenade, nyheter, olästa. Tryck för detaljer. |
 | `overview` | Allt i ett kort. |
+
+### Kategorier
+
+Varje rad får en etikett i egen färg, så att man ser vad det är:
+
+| Etikett | Vad det är | Var det kommer ifrån |
+|---|---|---|
+| **Prov** | Prov, test, diagnos | Kalenderhändelser och uppgifter med "prov" eller "test" i namnet. |
+| **Förhör** | Läxförhör, glosförhör | Kalenderhändelser med "förhör" eller "glosor". |
+| **Läxa** | Något som ska läsas eller kunnas | Kalenderhändelser med "läxa", "kunna", "läs" eller sidhänvisningar ("s. 102"). |
+| **Inlämning** | Uppgifter med deadline | Uppgifter i itslearning. |
+| **Lektion** | Planering för en viss dag | Planering som gäller färre än 4 dagar. |
+| **Arbetsområde** | Pågående område, t.ex. "Bröderna Lejonhjärta" | Planering som gäller 4 dagar eller mer. Visas under en egen utfällbar rubrik. |
+| **Material**, **Anslag**, **Nyhet** | Nytt från lärarna | Nyhetsflödet ("har lagt till …", "nytt anslag"). |
+| **Händelse** | Övrigt i kalendern | |
+
+Inom en dag sorteras raderna i ordningen prov, förhör, läxa, inlämning, händelse och lektion. Kategorin finns också som attribut (`category`, `category_label`) på alla sensorer, och syns i kalendrarna och i Google-synken, till exempel "🗣️ Förhör: Geografi: Läxa SO".
 
 ### Stilar (`preset`)
 
@@ -104,6 +123,10 @@ Färger anges som `[r, g, b]`, `"#rrggbb"` eller en CSS-färg som `"var(--accent
 | `show_description`, `description_lines` | `true`, `2` | Beskrivningar och hur många rader de får ta. |
 | `show_subject_color`, `subject_bar_width` | `true`, `3` | Ämnesfärgad linje från itslearning. |
 | `show_icons`, `icon_style` | `true`, `mdi` | `mdi` eller `emoji`. |
+| `show_badges`, `badge_style` | `true`, `pill` | Etikett per rad: `pill`, `text` eller `none`. |
+| `categories` | alla | Visa bara vissa, t.ex. `[test, quiz, homework]`. |
+| `show_areas` | `true` | Arbetsområden som utfällbar rad under dag- och veckovyer. |
+| `test_color`, `quiz_color`, `homework_color`, `assignment_color`, `event_color`, `lesson_color`, `area_color`, `material_color`, `bulletin_color`, `news_color` | | Färg per kategori. |
 | `group_by_day` | `true` | Dagkolumn till vänster. |
 | `link_items` | `true` | Rader öppnar itslearning. |
 | `max_items`, `days_ahead` | `8`, `14` | Hur mycket som visas. |

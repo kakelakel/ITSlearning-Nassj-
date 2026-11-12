@@ -65,6 +65,9 @@
       },
       "unread_notifications": {
         "name": "Unread notifications"
+      },
+      "work_areas": {
+        "name": "Ongoing work areas"
       }
     },
     "calendar": {
@@ -75,7 +78,7 @@
         "name": "Events"
       },
       "plans": {
-        "name": "Plans"
+        "name": "Lessons and work areas"
       }
     }
   },
