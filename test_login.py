@@ -72,12 +72,103 @@ async def show(client) -> None:
     print("✓ Klart, allt fungerar")
 
 
+def _compact(v, depth=0):
+    """Short preview of an API value (long texts cut, nested objects summarised)."""
+    if isinstance(v, str):
+        v = " ".join(v.split())
+        return v if len(v) <= 50 else v[:47] + "…"
+    if isinstance(v, dict):
+        if depth >= 1:
+            return "{" + ",".join(list(v)[:6]) + ("…" if len(v) > 6 else "") + "}"
+        return {k: _compact(x, depth + 1) for k, x in v.items()}
+    if isinstance(v, list):
+        return f"[{len(v)} st]" if depth else [_compact(x, depth + 1) for x in v[:3]]
+    return v
+
+
+def _rows(body):
+    if isinstance(body, dict):
+        for k in ("EntityArray", "Items", "Data", "Plans", "Result"):
+            if isinstance(body.get(k), list):
+                return body[k], body.get("Total")
+        return [body], None
+    if isinstance(body, list):
+        return body, len(body)
+    return [], None
+
+
+async def explore(client) -> None:
+    import json
+    from datetime import date, timedelta
+
+    d0 = date.today() - timedelta(days=7)
+    d1 = date.today() + timedelta(days=14)
+    ds = lambda d: d.isoformat()
+
+    async def probe(label, method, path, params=None, show=2):
+        try:
+            status, body = await client.raw(method, path, params)
+        except Exception as err:  # noqa: BLE001
+            print(f"\n## {label}\n  FEL: {err}")
+            return []
+        rows, total = _rows(body) if status == 200 else ([], None)
+        print(f"\n## {label}\n  {method} {path} → HTTP {status}, {len(rows)} rader" + (f" (totalt {total})" if total is not None else ""))
+        if status != 200:
+            print("  " + str(_compact(body))[:300])
+        elif rows:
+            print("  fält: " + ", ".join(sorted(rows[0].keys())) if isinstance(rows[0], dict) else "")
+            for r in rows[:show]:
+                print("  " + json.dumps(_compact(r), ensure_ascii=False)[:700])
+        return rows
+
+    print("\n================ UTFORSKAR API:ET ================")
+    await probe("Uppgifter (personal/tasks)", "GET", "/restapi/personal/tasks/v1/", {"PageIndex": 0, "PageSize": 100}, show=2)
+    await probe("Kalender", "GET", "/restapi/personal/calendar/events/v1",
+                {"fromDate": ds(d0), "toDate": ds(d1), "PageIndex": 0, "PageSize": 100}, show=3)
+    await probe("Kalender (bara fromDate)", "GET", "/restapi/personal/calendar/events/v1",
+                {"fromDate": ds(d0), "PageIndex": 0, "PageSize": 100}, show=1)
+    courses = await probe("Kurser", "GET", "/restapi/personal/courses/v1/", {"PageIndex": 0, "PageSize": 100}, show=1)
+    await probe("Aktiva planer", "POST", "/restapi/personal/courses/activeplans/v1",
+                {"startDate": ds(d0), "endDate": ds(d1)}, show=2)
+    await probe("Nyheter/flöde", "GET", "/restapi/personal/notifications/stream/v1/", {"PageIndex": 0, "PageSize": 5}, show=2)
+
+    print("\n## Per kurs (planer / uppgifter / kalender)")
+    samples = {}
+    for c in courses[:25]:
+        cid = c.get("CourseId")
+        if cid is None:
+            continue
+        counts = []
+        for key, path, params in (
+            ("planer", "/restapi/personal/planner/v1", {"courseId": cid, "startDate": ds(d0), "stopDate": ds(d1)}),
+            ("uppgifter", f"/restapi/personal/courses/{cid}/tasks/v1", {"PageIndex": 0, "PageSize": 50}),
+            ("kalender", f"/restapi/personal/courses/{cid}/calendarevents/v1",
+             {"fromDate": ds(d0), "toDate": ds(d1), "PageIndex": 0, "PageSize": 50}),
+        ):
+            try:
+                status, body = await client.raw("GET", path, params)
+            except Exception:  # noqa: BLE001
+                counts.append(f"{key}=fel")
+                continue
+            rows, _ = _rows(body) if status == 200 else ([], None)
+            counts.append(f"{key}={len(rows)}" if status == 200 else f"{key}=HTTP{status}")
+            if rows and key not in samples:
+                samples[key] = (c.get("Title"), rows)
+        print(f"  {str(c.get('Title'))[:30]:30}  " + "  ".join(counts))
+    for key, (title, rows) in samples.items():
+        print(f"\n## Exempel {key} ({title})\n  fält: " + ", ".join(sorted(rows[0].keys())))
+        for r in rows[:2]:
+            print("  " + json.dumps(_compact(r), ensure_ascii=False)[:700])
+    print("\n================ SLUT ================")
+
+
 async def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--site", default="https://nassjo.itslearning.com")
     p.add_argument("--username")
     p.add_argument("--debug", action="store_true")
     p.add_argument("--manual", action="store_true", help="logga in själv i webbläsaren och klistra in adressen")
+    p.add_argument("--explore", action="store_true", help="visa vad itslearnings API innehåller (kalender, planer …)")
     a = p.parse_args()
     logging.basicConfig(level=logging.DEBUG if a.debug else logging.INFO, format="%(message)s")
 
@@ -104,6 +195,9 @@ async def main() -> int:
     try:
         await client.login()
         print("✓ Inloggad, token hämtad")
+        if a.explore:
+            await explore(client)
+            return 0
         await show(client)
         return 0
     except api.ItslearningError as err:

@@ -44,6 +44,7 @@ PASSWORD_AUTHMECH_HINTS = ("anv%c3%a4ndarnamn", "användarnamn", "username", "pa
 APP_REDIRECT_RE = re.compile(re.escape(REDIRECT_URI.split("://")[0]) + r":(?://|\\/\\/)[^'\"\s<>]*")
 # Scopes are space separated. First the ones we need, then broader/narrower fallbacks.
 SCOPE_CANDIDATES = (
+    "Tasks Notifications Person Courses Calendar Planner LightBulletin Assignment",
     "Tasks Notifications Person Courses Calendar",
     "All",
     "Tasks Notifications",
@@ -740,6 +741,20 @@ class ItslearningClient:
         except aiohttp.ClientError as err:
             raise ItslearningConnectionError(str(err)) from err
 
+    async def raw(self, method: str, path: str, params: dict[str, Any] | None = None) -> tuple[int, Any]:
+        """Unparsed API call, used by test_login.py --explore."""
+        tokens = await self.ensure_token()
+        query = {"access_token": tokens.access_token, **(params or {})}
+        async with self.session.request(
+            method, f"{self.base_url}{path}", params=query,
+            headers={"Authorization": f"Bearer {tokens.access_token}", "Accept": "application/json"},
+        ) as resp:
+            try:
+                body = await resp.json(content_type=None)
+            except Exception:  # noqa: BLE001
+                body = (await resp.text())[:200]
+            return resp.status, body
+
     async def fetch_tasks(self) -> list[Task]:
         data = await self._get("/restapi/personal/tasks/v1/", {"PageIndex": 0, "PageSize": 100})
         return [_task_from_json(t) for t in (data or {}).get("EntityArray", [])]
@@ -757,14 +772,21 @@ class ItslearningClient:
         for page in range(10):
             data = await self._get(
                 "/restapi/personal/calendar/events/v1",
-                {"fromDate": start.strftime("%Y-%m-%dT00:00:00"), "PageIndex": page, "PageSize": 100},
+                {
+                    "fromDate": start.strftime("%Y-%m-%dT00:00:00"),
+                    "toDate": stop.strftime("%Y-%m-%dT23:59:59"),
+                    "PageIndex": page,
+                    "PageSize": 100,
+                },
             )
             rows = (data or {}).get("EntityArray", []) if isinstance(data, dict) else (data or [])
             if page == 0 and rows:
                 _LOGGER.debug("Kalenderfält: %s", sorted(rows[0].keys()))
             for row in rows:
                 item = _event_from_json(row)
-                if item and item.start < stop:
+                if item is None:
+                    _LOGGER.debug("Kalenderhändelse utan känt datumfält: %s", sorted(row.keys()))
+                elif item.start < stop:
                     items.append(item)
             total = (data or {}).get("Total") if isinstance(data, dict) else None
             if not rows or len(rows) < 100 or (total is not None and (page + 1) * 100 >= total):
