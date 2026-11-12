@@ -27,6 +27,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import aiohttp
+from yarl import URL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -117,6 +118,12 @@ class _PageParser(HTMLParser):
             self._link_text.append(data)
         if self._in_title:
             self.title += data
+
+
+def _short(url: str) -> str:
+    """host + path, without query (no tokens or SAML data in logs)."""
+    p = urlparse(url)
+    return f"{p.netloc}{p.path}"
 
 
 def _parse(html: str) -> _PageParser:
@@ -262,6 +269,16 @@ class ItslearningClient:
             await self._session.close()
 
     # ---- low level -------------------------------------------------------- #
+    @staticmethod
+    def _url(u: str) -> URL:
+        """Keep the server's exact percent-encoding (like a browser does)."""
+        try:
+            if u.isascii() and " " not in u:
+                return URL(u, encoded=True)
+        except ValueError:
+            pass
+        return URL(u)
+
     async def _request(self, method: str, url: str, data: dict[str, str] | None = None) -> tuple[str, str]:
         """Do a request and follow redirects by hand.
 
@@ -269,9 +286,9 @@ class ItslearningClient:
         redirects to the app's custom scheme.
         """
         for _ in range(MAX_STEPS):
-            _LOGGER.debug("%s %s", method, url.split("?")[0])
             try:
-                async with self.session.request(method, url, data=data, allow_redirects=False) as resp:
+                async with self.session.request(method, self._url(url), data=data, allow_redirects=False) as resp:
+                    _LOGGER.debug("  %s %s -> %s", method, _short(url), resp.status)
                     if resp.status in (301, 302, 303, 307, 308):
                         location = resp.headers.get("Location", "")
                         nxt = urljoin(url, location)
@@ -283,7 +300,7 @@ class ItslearningClient:
                     text = await resp.text(errors="replace")
                     if resp.status >= 500:
                         raise ItslearningConnectionError(f"HTTP {resp.status} from {urlparse(url).netloc}")
-                    return str(resp.url), text
+                    return url, text
             except aiohttp.ClientError as err:
                 raise ItslearningConnectionError(str(err)) from err
         raise ItslearningConnectionError("Too many redirects")
@@ -320,10 +337,23 @@ class ItslearningClient:
         url, html = await self._request("GET", start_url)
         password_sent = False
         federation_clicked = False
+        seen: dict[str, int] = {}
+        trail: list[str] = []
 
         for _ in range(MAX_STEPS):
             page = _parse(html)
             host = urlparse(url).netloc
+            key = _short(url)
+            seen[key] = seen.get(key, 0) + 1
+            trail.append(key)
+            _LOGGER.debug(
+                "Sida: %s | titel=%r | formulär=%d | länkar=%d",
+                key, page.title.strip(), len(page.forms), len(page.links),
+            )
+            if seen[key] > 3:
+                raise ItslearningConnectionError(
+                    "Inloggningen fastnade i en loop på " + key + ". Steg: " + " → ".join(trail[-8:])
+                )
 
             # 1) Login form with a password field -> credentials.
             pw_form = next((f for f in page.forms if f.has_password()), None)
@@ -340,12 +370,14 @@ class ItslearningClient:
                 if submit:
                     data[submit["name"]] = submit.get("value", "")
                 password_sent = True
+                _LOGGER.debug("→ Skickar användarnamn/lösenord (fält: %s)", ", ".join(data))
                 url, html = await self._submit(url, pw_form, data)
                 continue
 
             # 2) SAML / auto-post forms -> post them on.
             saml_form = next((f for f in page.forms if f.is_saml()), None)
             if saml_form is not None:
+                _LOGGER.debug("→ Skickar vidare SAML-formulär till %s", _short(urljoin(url, saml_form.action or "")))
                 url, html = await self._submit(url, saml_form, _form_fields(saml_form))
                 continue
 
@@ -358,6 +390,7 @@ class ItslearningClient:
                     data["__EVENTTARGET"] = target
                     data["__EVENTARGUMENT"] = ""
                     federation_clicked = True
+                    _LOGGER.debug("→ Klickar 'Logga in med Skolfederation' (%s)", target)
                     url, html = await self._submit(url, form, data)
                     continue
 
@@ -367,6 +400,7 @@ class ItslearningClient:
                 None,
             )
             if link:
+                _LOGGER.debug("→ Väljer inloggningsmetod: %s", link)
                 url, html = await self._request("GET", urljoin(url, link))
                 continue
 
