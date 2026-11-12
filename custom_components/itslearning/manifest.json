@@ -1,12 +1,19 @@
 {
   "domain": "itslearning",
   "name": "itslearning",
-  "codeowners": ["@kakelakel"],
+  "after_dependencies": [
+    "frontend",
+    "http",
+    "lovelace"
+  ],
+  "codeowners": [
+    "@kakelakel"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/kakelakel/ITSlearning-Nassj-",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/kakelakel/ITSlearning-Nassj-/issues",
   "requirements": [],
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

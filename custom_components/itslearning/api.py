@@ -259,6 +259,7 @@ class Task:
     element_type: str
     homework: bool = False
     description: str = ""
+    color: str = ""
 
     @property
     def completed(self) -> bool:
@@ -279,6 +280,7 @@ class Task:
             "url": self.url,
             "type": self.element_type,
             "homework": self.homework,
+            "color": self.color,
         }
 
 
@@ -317,6 +319,7 @@ class CalendarItem:
     url: str
     kind: str
     all_day: bool = False
+    color: str = ""
 
     @property
     def subject(self) -> str:
@@ -335,6 +338,7 @@ class CalendarItem:
             "description": self.description[:300],
             "kind": self.kind,
             "url": self.url,
+            "color": self.color,
         }
 
 
@@ -350,6 +354,7 @@ class Plan:
     course: str
     course_id: int
     url: str = ""
+    color: str = ""
 
     @property
     def subject(self) -> str:
@@ -365,6 +370,7 @@ class Plan:
             "course": self.course,
             "subject": self.subject,
             "url": self.url,
+            "color": self.color,
         }
 
 
@@ -376,6 +382,7 @@ class News:
     published: datetime | None
     author: str
     url: str
+    color: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -386,6 +393,7 @@ class News:
             "published": self.published.isoformat() if self.published else None,
             "author": self.author,
             "url": self.url,
+            "color": self.color,
         }
 
 
@@ -396,6 +404,7 @@ class Course:
     code: str
     url: str
     new_notifications: int = 0
+    color: str = ""
 
     @property
     def subject(self) -> str:
@@ -435,6 +444,7 @@ def _event_from_json(j: dict[str, Any]) -> CalendarItem | None:
         url=str(_first(j, "Url", "ContentUrl") or ""),
         kind=str(_first(j, "EventType", "Type", "ElementType") or ""),
         all_day=all_day,
+        color=str(_first(j, "LocationColor", "CourseColor", "Color") or ""),
     )
 
 
@@ -895,6 +905,7 @@ class ItslearningClient:
             Course(
                 id=int(c["CourseId"]), title=str(c.get("Title") or ""), code=str(c.get("CourseCode") or ""),
                 url=str(c.get("Url") or ""), new_notifications=int(c.get("NewNotificationsCount") or 0),
+                color=str(c.get("CourseColor") or ""),
             )
             for c in (data or {}).get("EntityArray", [])
             if c.get("CourseId") is not None
@@ -928,7 +939,7 @@ class ItslearningClient:
                 out.append(Plan(
                     id=int(r.get("PlanId") or 0), name=str(r.get("PlanName") or "Planering"),
                     description=html_to_text(r.get("PlanDescription")), start=start, stop=max(stop, start),
-                    course=course.title, course_id=course.id, url=course.url,
+                    course=course.title, course_id=course.id, url=course.url, color=course.color,
                 ))
             return out
 

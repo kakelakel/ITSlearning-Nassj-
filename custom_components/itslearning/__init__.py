@@ -18,10 +18,34 @@ type ItslearningConfigEntry = ConfigEntry[ItslearningCoordinator]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
+CARD_URL = "/itslearning_static/itslearning-card.js"
+
+
+async def _async_register_card(hass: HomeAssistant) -> None:
+    """Serve the Lovelace card from the integration and load it on every dashboard."""
+    import json
+    from pathlib import Path
+
+    if "frontend" not in hass.config.components or "http" not in hass.config.components:
+        return
+    try:
+        from homeassistant.components.frontend import add_extra_js_url
+        from homeassistant.components.http import StaticPathConfig
+    except ImportError:  # very old HA
+        return
+    path = Path(__file__).parent / "www" / "itslearning-card.js"
+    version = await hass.async_add_executor_job(
+        lambda: json.loads((Path(__file__).parent / "manifest.json").read_text())["version"]
+    )
+    await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, str(path), False)])
+    add_extra_js_url(hass, f"{CARD_URL}?v={version}")
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     from .sync import async_register_services
 
     async_register_services(hass)
+    await _async_register_card(hass)
     return True
 
 

@@ -61,6 +61,69 @@ Panelen visar:
 
 Panelen använder bara inbyggda kort.
 
+## Kort till din egen panel
+
+Integrationen har ett eget kort, `custom:itslearning-card`, som laddas automatiskt. Du behöver inte lägga till någon resurs eller installera något via HACS. Välj **Redigera panel → Lägg till kort**, sök efter **itslearning** och ställ in allt i den visuella editorn. Fler färdiga exempel finns i [`lovelace/card-examples.yaml`](lovelace/card-examples.yaml).
+
+![Stilar 1](docs/card-presets-1.png)
+![Stilar 2](docs/card-presets-2.png)
+
+```yaml
+type: custom:itslearning-card
+view: homework
+preset: glass
+```
+
+### Vyer (`view`)
+
+| Värde | Visar |
+|---|---|
+| `day` | Idag och i morgon (standard). |
+| `today` / `tomorrow` | En dag: händelser, deadlines och planering. |
+| `homework` | Läxförhör, prov och deadlines, grupperat per dag. Visar även försenade och uppgifter utan deadline. |
+| `week` / `next_week` | Lektionsplanering per dag. |
+| `news` | Nyheter från lärarna. |
+| `next` | En rad med nästa läxa eller prov. |
+| `chips` | Snabbsiffror: i morgon, prov, försenade, nyheter, olästa. Tryck för detaljer. |
+| `overview` | Allt i ett kort. |
+
+### Stilar (`preset`)
+
+`default` (följer ditt tema), `glass`, `neon`, `minimal`, `solid`, `notebook`, `sunset`, `ocean`, `midnight`. En stil är en startpunkt. Allt du ställer in själv skriver över den.
+
+### Alla inställningar
+
+Färger anges som `[r, g, b]`, `"#rrggbb"` eller en CSS-färg som `"var(--accent-color)"`.
+
+| Inställning | Standard | Beskrivning |
+|---|---|---|
+| `title`, `icon` | per vy | Egen rubrik och ikon. |
+| `show_header`, `show_count` | `true` | Rubrikrad och antal. |
+| `show_events`, `show_tasks`, `show_plans` | `true` | Vad som tas med. |
+| `show_overdue`, `show_no_deadline` | `true` | Extra delar i `homework`. |
+| `show_description`, `description_lines` | `true`, `2` | Beskrivningar och hur många rader de får ta. |
+| `show_subject_color`, `subject_bar_width` | `true`, `3` | Ämnesfärgad linje från itslearning. |
+| `show_icons`, `icon_style` | `true`, `mdi` | `mdi` eller `emoji`. |
+| `group_by_day` | `true` | Dagkolumn till vänster. |
+| `link_items` | `true` | Rader öppnar itslearning. |
+| `max_items`, `days_ahead` | `8`, `14` | Hur mycket som visas. |
+| `empty_text` | – | Egen text när listan är tom. |
+| `entity_suffix` | – | `_2` för ett andra barn. |
+| `background_color`, `background_opacity` | tema, `100` | Bakgrund och täckning i procent. 0 betyder genomskinligt. |
+| `blur` | `0` | Oskärpa bakom kortet (glas), i px. |
+| `gradient`, `gradient_color`, `gradient_angle` | `false` | Gradient från bakgrundsfärgen. |
+| `ruled` | `false` | Linjerat papper med marginallinje. |
+| `text_color`, `secondary_text_color`, `accent_color` | tema | Textfärger och accent. |
+| `font_scale` | `100` | Textstorlek i procent. |
+| `border_width`, `border_style`, `border_color`, `border_opacity`, `border_radius` | tema | Kantlinje: `solid`, `dashed`, `dotted` eller `double`. |
+| `shadow` | tema | Skuggans storlek, 0–80. |
+| `glow`, `glow_color`, `glow_size`, `glow_intensity` | `false` | Glöd runt kortet. |
+| `glow_animation` | `none` | `pulse`, `breathe` eller `rainbow`. Stängs av om enheten har reducerad rörelse påslagen. |
+| `item_style` | `plain` | `plain`, `tinted`, `outlined` eller `bar` (tonad med ämnesfärg). |
+| `item_background_opacity`, `item_radius`, `item_spacing`, `padding` | | Radernas utseende och avstånd. |
+| `today_color`, `tomorrow_color`, `soon_color`, `later_color`, `overdue_color` | röd, orange, gul | Färg på dagkolumnen efter hur bråttom det är. |
+| `chips` | alla | Vilka chips som visas, t.ex. `[tomorrow, overdue_tasks]`. |
+
 ## 4. Google Kalender
 
 1. Lägg till Home Assistants integration **Google Calendar** och ge den läs- och skrivrättighet. Skapa gärna en egen Google-kalender, till exempel "Freja skola", och välj den.

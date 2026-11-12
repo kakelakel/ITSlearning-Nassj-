@@ -64,6 +64,12 @@ class ItslearningCoordinator(DataUpdateCoordinator[ItslearningData]):
         except ItslearningError as err:
             raise UpdateFailed(str(err)) from err
 
+        # Course colours from itslearning on everything that belongs to a course.
+        colors = {co.title: co.color for co in self._courses if co.color}
+        for item in (*tasks, *plans, *news, *events):
+            if not getattr(item, "color", "") and item.course in colors:
+                item.color = colors[item.course]
+
         # Persist new tokens so a restart does not need a full login.
         if self.client.tokens and self.client.tokens.refresh_token != old_refresh:
             self.hass.config_entries.async_update_entry(

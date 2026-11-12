@@ -1,0 +1,90 @@
+# Exempel på itslearning-kortet. Kopiera ett kort i taget till din panel:
+# Redigera panel → Lägg till kort → (scrolla ner) Manuellt → klistra in.
+# Allt går också att ställa in i kortets visuella editor ("itslearning" i kortlistan).
+
+# ------------------------------------------------------------------ 1. Snabbsiffror överst i panelen
+type: custom:itslearning-card
+view: chips
+preset: glass
+
+---
+# ------------------------------------------------------------------ 2. En rad: nästa läxa/prov
+type: custom:itslearning-card
+view: next
+preset: midnight
+
+---
+# ------------------------------------------------------------------ 3. Idag och i morgon, följer ditt tema
+type: custom:itslearning-card
+view: day
+
+---
+# ------------------------------------------------------------------ 4. Läxor och prov, glas på bakgrundsbild
+type: custom:itslearning-card
+view: homework
+preset: glass
+days_ahead: 10
+max_items: 6
+
+---
+# ------------------------------------------------------------------ 5. Veckans planering, neon
+type: custom:itslearning-card
+view: week
+preset: neon
+glow_animation: breathe
+
+---
+# ------------------------------------------------------------------ 6. Skrivhäfte
+type: custom:itslearning-card
+view: tomorrow
+preset: notebook
+icon_style: emoji
+
+---
+# ------------------------------------------------------------------ 7. Helt egen stil
+type: custom:itslearning-card
+view: homework
+title: Läxor
+icon: mdi:bag-personal-outline
+background_color: [18, 18, 28]
+background_opacity: 70
+blur: 12
+gradient: true
+gradient_color: [60, 20, 70]
+gradient_angle: 160
+border_width: 2
+border_style: dashed
+border_color: [255, 200, 0]
+border_opacity: 80
+border_radius: 28
+glow: true
+glow_color: [255, 200, 0]
+glow_size: 24
+glow_intensity: 40
+glow_animation: pulse
+item_style: bar
+item_radius: 14
+subject_bar_width: 4
+today_color: [255, 82, 82]
+tomorrow_color: [255, 200, 0]
+font_scale: 105
+
+---
+# ------------------------------------------------------------------ 8. Minimal i ett vertikalt stack-kort
+type: vertical-stack
+cards:
+  - type: custom:itslearning-card
+    view: chips
+    preset: minimal
+  - type: custom:itslearning-card
+    view: day
+    preset: minimal
+    show_header: false
+    show_plans: false
+
+---
+# ------------------------------------------------------------------ 9. Andra barnet (entiteter med _2)
+type: custom:itslearning-card
+view: day
+entity_suffix: _2
+title: Lillebror
