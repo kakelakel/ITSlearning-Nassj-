@@ -482,9 +482,21 @@ class ItslearningClient:
             return has(ALLOW_WORDS, text) and not has(DENY_WORDS, text)
 
         data = _form_fields(form)
-        choice = next((c for c in controls if is_allow(f"{c.get('label')} {c.get('value')} {c.get('name')}")), None)
+
+        def text_of(c: dict[str, str]) -> str:
+            return f"{c.get('label', '')} {c.get('value', '')}"
+
+        # 1) A button whose visible text says allow.
+        choice = next((c for c in controls if is_allow(text_of(c))), None)
+        # 2) itslearning's SaveOrCancel control: "$SB" is the save button.
         if choice is None:
-            non_deny = [c for c in controls if not has(DENY_WORDS, f"{c.get('label')} {c.get('value')} {c.get('name')}")]
+            choice = next(
+                (c for c in controls if re.search(r"(\$SB|SaveButton|AllowButton|AcceptButton)$", c.get("name", ""))),
+                None,
+            )
+        # 3) The only button whose text does not say deny.
+        if choice is None:
+            non_deny = [c for c in controls if not has(DENY_WORDS, text_of(c))]
             if len(non_deny) == 1:
                 choice = non_deny[0]
         if choice is not None:
