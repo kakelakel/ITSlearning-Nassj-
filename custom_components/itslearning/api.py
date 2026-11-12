@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from html import unescape
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urljoin, urlparse
 
 import aiohttp
 from yarl import URL
@@ -290,6 +290,8 @@ class ItslearningClient:
         self.tokens = tokens
         self._session = session
         self._own_session = session is None
+        self._state = secrets.token_hex(8)
+        self.dump_dir: str | None = None  # test_login.py sets this to save the consent page
 
     # ---- session handling ------------------------------------------------- #
     @property
@@ -365,6 +367,20 @@ class ItslearningClient:
             raise ItslearningAuthError(f"itslearning refused the login: {err[0]}")
 
     # ---- login ------------------------------------------------------------ #
+    def manual_authorize_url(self, scope: str | None = None) -> str:
+        """URL for logging in by hand in a normal browser (manual fallback)."""
+        return self._authorize_url(scope or SCOPE_CANDIDATES[0])
+
+    async def exchange_code(self, code_or_url: str) -> Tokens:
+        """Exchange a code (or the whole itsl-itslearning://login?code=… address)."""
+        text = code_or_url.strip().strip('"').strip("'")
+        m = re.search(r"[?&]code=([^&\s#]+)", text)
+        code = unquote(m.group(1)) if m else text
+        if not code:
+            raise ItslearningAuthError("Ingen kod hittades")
+        self.tokens = await self._token_request({"grant_type": "authorization_code", "code": code})
+        return self.tokens
+
     async def login(self) -> Tokens:
         """Full browser-like login. Use sparingly; refresh tokens are preferred."""
         self.session.cookie_jar.clear()
@@ -425,6 +441,8 @@ class ItslearningClient:
                 _LOGGER.debug("Sidans text: %s", page.visible_text[:300])
                 if consent_posted_for == scope_idx:
                     # Same page again: itslearning did not accept this scope set.
+                    if scope_idx == 0:
+                        self._dump("consent_after_click", html)
                     scope_idx += 1
                     if scope_idx >= len(SCOPE_CANDIDATES):
                         raise ItslearningAuthError(
@@ -435,6 +453,7 @@ class ItslearningClient:
                     url, html = await self._request("GET", self._authorize_url(SCOPE_CANDIDATES[scope_idx]))
                     continue
                 consent_posted_for = scope_idx
+                self._dump("consent", html)
                 _LOGGER.debug("Scope: %r", SCOPE_CANDIDATES[scope_idx])
                 url, html = await self._approve_consent(url, html, page)
                 continue
@@ -508,6 +527,17 @@ class ItslearningClient:
             raise ItslearningConnectionError(f"Okänd sida i inloggningsflödet: {host} ({page.title.strip()})")
 
         raise ItslearningConnectionError("Inloggningsflödet tog för många steg")
+
+    def _dump(self, name: str, html: str) -> None:
+        if not self.dump_dir:
+            return
+        import os
+        clean = re.sub(r'(name="(?:__VIEWSTATE|__EVENTVALIDATION|SAMLResponse|SAMLRequest)"[^>]*value=")[^"]*', r"\1(borttaget)", html)
+        clean = re.sub(r'(value=")[^"]*("[^>]*name="(?:__VIEWSTATE|__EVENTVALIDATION)")', r"\1(borttaget)\2", clean)
+        path = os.path.join(self.dump_dir, f"itslearning_{name}.html")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(clean)
+        _LOGGER.info("Sparade sidan till %s", path)
 
     async def _approve_consent(self, url: str, html: str, page: _PageParser) -> tuple[str, str]:
         form = page.forms[0]
