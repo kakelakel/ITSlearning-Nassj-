@@ -41,6 +41,8 @@ USER_AGENT = (
 MAX_STEPS = 25
 FEDERATION_HINT = "Skolfederation"
 PASSWORD_AUTHMECH_HINTS = ("anv%c3%a4ndarnamn", "användarnamn", "username", "password", "l%c3%b6senord")
+ALLOW_WORDS = ("tillåt", "godkänn", "acceptera", "allow", "accept", "approve", "authorize", "ja", "yes", "fortsätt", "continue", "ok")
+DENY_WORDS = ("neka", "avbryt", "avvisa", "deny", "cancel", "reject", "decline", "nej")
 COMPLETED_STATUSES = {"completed", "finished", "submitted", "done", "handedin", "evaluated", "assessed"}
 
 
@@ -86,16 +88,22 @@ class _PageParser(HTMLParser):
         self.meta_refresh: str | None = None
         self.text: list[str] = []
         self._skip = 0
+        self._button: dict[str, str] | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         a = {k.lower(): (v or "") for k, v in attrs}
         if tag == "form":
             self._form = _Form(a.get("action"), (a.get("method") or "get").lower())
             self.forms.append(self._form)
-        elif tag in ("input", "button", "select", "textarea") and self._form is not None:
+        elif tag == "button" and self._form is not None:
+            self._button = {"name": a.get("name", ""), "type": (a.get("type") or "submit").lower(),
+                            "value": a.get("value", ""), "label": "", "onclick": a.get("onclick", "")}
+            self._form.inputs.append(self._button)
+        elif tag in ("input", "select", "textarea") and self._form is not None:
             if tag == "input" or a.get("name"):
                 self._form.inputs.append(
-                    {"name": a.get("name", ""), "type": a.get("type", "text").lower(), "value": a.get("value", "")}
+                    {"name": a.get("name", ""), "type": a.get("type", "text").lower(), "value": a.get("value", ""),
+                     "label": a.get("value", ""), "onclick": a.get("onclick", "")}
                 )
         elif tag == "a":
             self._link_href = a.get("href", "")
@@ -112,6 +120,8 @@ class _PageParser(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if tag == "form":
             self._form = None
+        elif tag == "button":
+            self._button = None
         elif tag == "a" and self._link_href is not None:
             self.links.append((self._link_href, " ".join("".join(self._link_text).split())))
             self._link_href = None
@@ -123,6 +133,8 @@ class _PageParser(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self._link_href is not None:
             self._link_text.append(data)
+        if self._button is not None:
+            self._button["label"] = (self._button["label"] + " " + data.strip()).strip()
         if self._in_title:
             self.title += data
         elif not self._skip and data.strip():
@@ -381,6 +393,11 @@ class ItslearningClient:
                 url, html = await self._request("GET", start_url)
                 continue
 
+            # 0b) OAuth consent page ("Den här appen vill få åtkomst …") -> allow.
+            if "itslearning" in host and "/oauth2/authorize" in url.lower() and page.forms:
+                url, html = await self._approve_consent(url, html, page)
+                continue
+
             # 1) Login form with a password field -> credentials.
             pw_form = next((f for f in page.forms if f.has_password()), None)
             if pw_form is not None:
@@ -450,6 +467,41 @@ class ItslearningClient:
             raise ItslearningConnectionError(f"Okänd sida i inloggningsflödet: {host} ({page.title.strip()})")
 
         raise ItslearningConnectionError("Inloggningsflödet tog för många steg")
+
+    async def _approve_consent(self, url: str, html: str, page: _PageParser) -> tuple[str, str]:
+        form = page.forms[0]
+        controls = [i for i in form.inputs if i.get("type") in ("submit", "button", "image")]
+        labels = [f"{c.get('name')}={c.get('label') or c.get('value')}" for c in controls]
+        _LOGGER.debug("Godkännandesida, knappar: %s | länkar: %s", labels, [t for _, t in page.links])
+
+        def has(words: tuple[str, ...], text: str) -> bool:
+            words_in = re.findall(r"[a-zåäö]+", re.sub(r"([a-z])([A-Z])", r"\1 \2", text).lower())
+            return any(w in words_in or (len(w) > 4 and any(x.startswith(w) for x in words_in)) for w in words)
+
+        def is_allow(text: str) -> bool:
+            return has(ALLOW_WORDS, text) and not has(DENY_WORDS, text)
+
+        data = _form_fields(form)
+        choice = next((c for c in controls if is_allow(f"{c.get('label')} {c.get('value')} {c.get('name')}")), None)
+        if choice is None:
+            non_deny = [c for c in controls if not has(DENY_WORDS, f"{c.get('label')} {c.get('value')} {c.get('name')}")]
+            if len(non_deny) == 1:
+                choice = non_deny[0]
+        if choice is not None:
+            pb = re.search(r"__doPostBack\(\s*['\"]([^'\"]+)['\"]", choice.get("onclick", ""))
+            if pb:
+                data["__EVENTTARGET"], data["__EVENTARGUMENT"] = pb.group(1), ""
+            elif choice.get("name"):
+                data[choice["name"]] = choice.get("value", "")
+            _LOGGER.debug("→ Godkänner app-åtkomst (%s)", choice.get("label") or choice.get("value") or choice.get("name"))
+            return await self._submit(url, form, data)
+        for href, text in page.links:
+            pb = re.search(r"__doPostBack\(\s*['\"]([^'\"]+)['\"]", href)
+            if pb and is_allow(text):
+                data["__EVENTTARGET"], data["__EVENTARGUMENT"] = pb.group(1), ""
+                _LOGGER.debug("→ Godkänner app-åtkomst (länk %s)", text)
+                return await self._submit(url, form, data)
+        raise ItslearningAuthError(f"Hittade ingen Tillåt-knapp på godkännandesidan. Knappar: {labels}")
 
     async def _submit(self, page_url: str, form: _Form, data: dict[str, str]) -> tuple[str, str]:
         action = urljoin(page_url, form.action) if form.action else page_url
