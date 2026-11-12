@@ -1,0 +1,182 @@
+# itslearning-blueprint (installeras och uppdateras automatiskt av integrationen)
+blueprint:
+  name: "itslearning: notis om nytt"
+  description: >-
+    Skickar en notis när något nytt dyker upp i itslearning: prov, förhör, läxor,
+    inlämningar, ändrade deadlines, material, anslag och personliga notiser.
+    Du väljer kategorier, mottagare och tysta timmar. Ett tryck på notisen öppnar itslearning.
+  domain: automation
+  author: itslearning-integrationen
+  source_url: https://github.com/kakelakel/ITSlearning-Nassj-/blob/main/custom_components/itslearning/blueprints/itslearning_notify_new.yaml
+  input:
+    target:
+      name: Mottagare
+      icon: mdi:cellphone-message
+      input:
+        notify_action:
+          name: Notifieringsåtgärd
+          description: >-
+            Till exempel notify.mobile_app_annas_telefon. Vill du skicka till flera
+            telefoner, skapa en notify-grupp och ange den här.
+          default: notify.notify
+          selector:
+            text: {}
+        child:
+          name: Bara för barnet (valfritt)
+          description: Namnet på itslearning-integrationen, t.ex. "Freja Grahn". Tomt betyder alla barn.
+          default: ""
+          selector:
+            text: {}
+    what:
+      name: Vad som ska ge notis
+      icon: mdi:filter-outline
+      input:
+        categories:
+          name: Kategorier
+          default: [test, quiz, homework, assignment, deadline, material, bulletin, notification]
+          selector:
+            select:
+              multiple: true
+              mode: list
+              options:
+                - { value: test, label: "Prov" }
+                - { value: quiz, label: "Förhör" }
+                - { value: homework, label: "Läxa" }
+                - { value: assignment, label: "Inlämning (ny uppgift)" }
+                - { value: deadline, label: "Ny eller ändrad deadline" }
+                - { value: event, label: "Övriga händelser i kalendern" }
+                - { value: lesson, label: "Ny lektionsplanering" }
+                - { value: area, label: "Nytt arbetsområde" }
+                - { value: material, label: "Nytt material från lärare" }
+                - { value: bulletin, label: "Anslag" }
+                - { value: news, label: "Övriga nyheter" }
+                - { value: notification, label: "Personliga notiser (bedömningar, kommentarer …)" }
+        only_within_days:
+          name: Bara om det gäller inom (dagar)
+          description: >-
+            För prov, förhör, läxor och deadlines: skicka bara om det inträffar inom så här
+            många dagar. 0 betyder att allt skickas oavsett datum.
+          default: 0
+          selector:
+            number: { min: 0, max: 60, mode: box, unit_of_measurement: dagar }
+    look:
+      name: Notisens utseende
+      icon: mdi:message-badge-outline
+      input:
+        include_description:
+          name: Ta med beskrivning
+          default: true
+          selector:
+            boolean: {}
+        open_link:
+          name: Öppna itslearning vid tryck
+          default: true
+          selector:
+            boolean: {}
+        important:
+          name: Viktiga kategorier
+          description: Skickas med hög prioritet (bryter igenom Fokus på iPhone, hög prioritet på Android).
+          default: [test, quiz]
+          selector:
+            select:
+              multiple: true
+              options:
+                - { value: test, label: "Prov" }
+                - { value: quiz, label: "Förhör" }
+                - { value: homework, label: "Läxa" }
+                - { value: assignment, label: "Inlämning" }
+                - { value: deadline, label: "Deadline" }
+                - { value: notification, label: "Personliga notiser" }
+    quiet:
+      name: Tysta timmar
+      icon: mdi:sleep
+      collapsed: true
+      input:
+        quiet_enabled:
+          name: Använd tysta timmar
+          description: Notiser som kommer under tysta timmar väntar tills de är slut.
+          default: true
+          selector:
+            boolean: {}
+        quiet_start:
+          name: Tyst från
+          default: "21:00:00"
+          selector:
+            time: {}
+        quiet_end:
+          name: Tyst till
+          default: "07:00:00"
+          selector:
+            time: {}
+
+mode: queued
+max: 40
+
+triggers:
+  - trigger: event
+    event_type: itslearning_new
+
+variables:
+  cats: !input categories
+  child_filter: !input child
+  within: !input only_within_days
+  include_description: !input include_description
+  open_link: !input open_link
+  important: !input important
+  quiet_enabled: !input quiet_enabled
+  quiet_start: !input quiet_start
+  quiet_end: !input quiet_end
+  d: "{{ trigger.event.data }}"
+  key: "{{ 'deadline' if d.kind == 'deadline' else d.category }}"
+  dated: "{{ key in ['test', 'quiz', 'homework', 'assignment', 'deadline', 'event'] }}"
+  is_important: "{{ key in important }}"
+  emoji: >-
+    {{ {'test': '📝', 'quiz': '🗣️', 'homework': '📚', 'assignment': '📤', 'deadline': '⏰',
+        'event': '📅', 'lesson': '📖', 'area': '🗺️', 'material': '📎', 'bulletin': '📣',
+        'news': '📰', 'notification': '🔔'}.get(key, '•') }}
+
+conditions:
+  - condition: template
+    value_template: "{{ key in cats }}"
+  - condition: template
+    value_template: "{{ child_filter == '' or d.child == child_filter }}"
+  - condition: template
+    value_template: >-
+      {{ within | int(0) == 0 or not dated or d.days_left is none
+         or (d.days_left | int(99)) <= within | int(0) }}
+
+actions:
+  - variables:
+      in_quiet: >-
+        {% if not quiet_enabled %}false{% else %}
+        {% set n = now().strftime('%H:%M:%S') %}
+        {% if quiet_start <= quiet_end %}{{ quiet_start <= n < quiet_end }}
+        {% else %}{{ n >= quiet_start or n < quiet_end }}{% endif %}{% endif %}
+  - if:
+      - condition: template
+        value_template: "{{ in_quiet }}"
+    then:
+      - wait_for_trigger:
+          - trigger: time
+            at: !input quiet_end
+        timeout: "13:00:00"
+        continue_on_timeout: true
+  - action: !input notify_action
+    data:
+      title: >-
+        {{ emoji }} {{ d.category_label }}{% if d.subject %}: {{ d.subject }}{% endif %}
+      message: >-
+        {{ d.title }}{% if d.day and dated %} ({{ d.day }}{% if d.time %} {{ d.time }}{% endif %}){% endif %}
+        {%- if include_description and d.description %}
+
+        {{ d.description[:180] }}{% endif %}
+      data:
+        group: itslearning
+        tag: "itsl-{{ d.kind }}-{{ (d.title ~ d.date) | slugify }}"
+        url: "{{ d.url if open_link and d.url else '' }}"
+        clickAction: "{{ d.url if open_link and d.url else '' }}"
+        priority: "{{ 'high' if is_important else 'normal' }}"
+        ttl: 0
+        channel: "{{ 'itslearning viktigt' if is_important else 'itslearning' }}"
+        push:
+          interruption-level: "{{ 'time-sensitive' if is_important else 'active' }}"

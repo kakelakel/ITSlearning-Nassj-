@@ -160,6 +160,7 @@ SENSORS: tuple[ItslearningSensorDescription, ...] = (
         translation_key="unread_notifications",
         icon="mdi:bell-badge-outline",
         value_fn=lambda d: d.unread_notifications,
+        attrs_fn=lambda d: {"notifications": [n.as_dict() for n in d.notifications[:MAX_ITEMS]]},
     ),
 )
 

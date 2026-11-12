@@ -1,10 +1,10 @@
-# itslearning – synk till Google Kalender + läxpåminnelse
+# itslearning – synk till Google Kalender
 #
 # 1. Lägg till i configuration.yaml (om det inte redan finns):
 #      homeassistant:
 #        packages: !include_dir_named packages
 # 2. Kopiera den här filen till config/packages/itslearning.yaml
-# 3. Byt calendar.DIN_GOOGLE_KALENDER och notify.mobile_app_DIN_TELEFON nedan.
+# 3. Byt calendar.DIN_GOOGLE_KALENDER nedan.
 # 4. Starta om Home Assistant (eller Utvecklarverktyg → YAML → ladda om allt).
 
 script:
@@ -49,30 +49,5 @@ automation:
           days_ahead: 14
     mode: single
 
-  - id: itslearning_laxpaminnelse
-    alias: "itslearning: påminnelse om i morgon"
-    description: Kl. 18 – läxförhör, prov, deadlines och planering för i morgon.
-    triggers:
-      - trigger: time
-        at: "18:00:00"
-    conditions:
-      - condition: template
-        value_template: >-
-          {% set d = state_attr('sensor.itslearning_tomorrow', 'events') or [] %}
-          {% set t = state_attr('sensor.itslearning_tomorrow', 'tasks') or [] %}
-          {{ (d + t) | count > 0 }}
-    actions:
-      - action: notify.mobile_app_DIN_TELEFON   # ← byt
-        data:
-          title: I morgon i skolan
-          message: |
-            {% for e in state_attr('sensor.itslearning_tomorrow', 'events') or [] %}
-            📝 {{ e.subject or e.course }}: {{ e.title }}{% if e.description %} – {{ e.description[:80] }}{% endif %}
-            {% endfor %}
-            {% for t in state_attr('sensor.itslearning_tomorrow', 'tasks') or [] %}
-            📚 {{ t.title }} ({{ t.subject }}) – lämnas {{ t.deadline_local[11:] }}
-            {% endfor %}
-            {% for p in state_attr('sensor.itslearning_tomorrow', 'plans') or [] %}
-            📖 {{ p.subject }}: {{ p.name }}
-            {% endfor %}
-    mode: single
+# Läxpåminnelser och notiser om nytt: använd blueprints "itslearning: påminnelse om läxor och prov"
+# och "itslearning: notis om nytt" (Inställningar → Automationer → Blueprints).

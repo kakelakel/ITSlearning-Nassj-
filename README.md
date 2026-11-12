@@ -5,7 +5,8 @@ Inofficiell Home Assistant-integration som hämtar läxor, deadlines och schema 
 Med i repot:
 - **Integrationen** (`custom_components/itslearning`) med sensorer, två kalendrar och en synk-åtgärd.
 - **En färdig skolpanel** för Lovelace (`lovelace/itslearning-dashboard.yaml`).
-- **Ett paket** (`packages/itslearning.yaml`) med synk till Google Kalender och en läxpåminnelse kl. 18.
+- **Ett paket** (`packages/itslearning.yaml`) med synk till Google Kalender.
+- **Notiser** om nytt och dagliga läxpåminnelser, som blueprints.
 
 > Inte kopplad till eller godkänd av itslearning AS eller Nässjö kommun. Den kan sluta fungera om itslearning eller kommunen ändrar sin inloggning.
 
@@ -147,6 +148,59 @@ Färger anges som `[r, g, b]`, `"#rrggbb"` eller en CSS-färg som `"var(--accent
 | `today_color`, `tomorrow_color`, `soon_color`, `later_color`, `overdue_color` | röd, orange, gul | Färg på dagkolumnen efter hur bråttom det är. |
 | `chips` | alla | Vilka chips som visas, t.ex. `[tomorrow, overdue_tasks]`. |
 
+## Notiser
+
+Integrationen märker när något nytt dyker upp i itslearning och skickar då händelsen `itslearning_new`. Den följer med två färdiga **blueprints**, som installeras automatiskt under *Inställningar → Automationer → Blueprints*. Välj en blueprint, tryck *Skapa automation*, fyll i och spara.
+
+### itslearning: notis om nytt
+
+Skickar en notis för varje nytt prov, förhör, läxa, inlämning, ny eller ändrad deadline, nytt material, anslag och personlig notis, till exempel en ny bedömning.
+
+- **Kategorier:** välj vilka som ska ge notis.
+- **Bara om det gäller inom x dagar:** prov om två månader kan vänta.
+- **Viktiga kategorier:** skickas med hög prioritet. Standard är prov och förhör.
+- **Tysta timmar:** notisen väntar tills de är slut. Standard är 21–07.
+- Ett tryck på notisen öppnar itslearning.
+
+Första gången integrationen startar sparar den bara vad som redan finns, så du får inte en flod av gamla notiser. Den minns vad den har sett även efter en omstart.
+
+### itslearning: påminnelse om läxor och prov
+
+En daglig sammanfattning vid en tid och på veckodagar du väljer:
+
+- **Inom x dagar:** till exempel kl. 18 om allt som gäller i morgon.
+- **Exakt x dagar före:** till exempel "prov om 3 dagar". Skapa gärna en automation till med bara kategorin Prov.
+- **Ta med idag:** bra för en morgonpåminnelse kl. 07.
+- **Ta med försenade uppgifter.**
+
+Exempel på notis:
+
+```
+Skolan – närmaste 7 dagarna
+🗣️ I morgon: Förhör Geografi – Läxa SO (11:40–12:35)
+📝 Lördag 14/11: Prov Kemi – Prov kemi (09:00–10:00)
+📤 Söndag 15/11: Inlämning Kemi – Labbrapport (lämnas 22:00)
+⚠️ Försenad: Svenska – Saga
+```
+
+Mottagaren anges som en notify-åtgärd, till exempel `notify.mobile_app_annas_telefon`. Vill du skicka till flera telefoner, skapa en [notify-grupp](https://www.home-assistant.io/integrations/group/#notify-groups).
+
+### Egna automationer
+
+Händelsen `itslearning_new` innehåller `kind`, `category`, `category_label`, `subject`, `title`, `description`, `url`, `date`, `day`, `days_left`, `time` och `child`. `kind` är `task`, `deadline`, `event`, `plan`, `news` eller `notification`.
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: itslearning_new
+    event_data:
+      category: test
+actions:
+  - action: light.turn_on
+    target: { entity_id: light.kontoret }
+    data: { color_name: red, flash: short }
+```
+
 ## 4. Google Kalender
 
 1. Lägg till Home Assistants integration **Google Calendar** och ge den läs- och skrivrättighet. Skapa gärna en egen Google-kalender, till exempel "Freja skola", och välj den.
@@ -155,11 +209,9 @@ Färger anges som `[r, g, b]`, `"#rrggbb"` eller en CSS-färg som `"var(--accent
    homeassistant:
      packages: !include_dir_named packages
    ```
-3. Byt `calendar.DIN_GOOGLE_KALENDER` och `notify.mobile_app_DIN_TELEFON` i filen och starta om.
+3. Byt `calendar.DIN_GOOGLE_KALENDER` i filen och starta om.
 
 Synken körs varje timme och lägger bara till **nya** händelser. Varje händelse får en markering `[itsl:…]` i beskrivningen, så den läggs aldrig in två gånger. Som standard synkas deadlines och händelser (läxförhör, prov). Ta bort `#` framför `- plans` om även planeringen ska in.
-
-Påminnelsen kl. 18 skickas bara när något är inlagt för i morgon.
 
 Begränsning: Home Assistant kan inte ta bort eller flytta händelser i en annan kalender. Om en lärare flyttar en deadline läggs den nya tiden in, men den gamla ligger kvar tills du tar bort den.
 

@@ -132,6 +132,7 @@ def fmt_task(t: Task) -> dict:
     if t.deadline:
         local = dt_util.as_local(t.deadline)
         d["deadline_local"] = f"{local:%Y-%m-%d %H:%M}"
+        d["time"] = f"lämnas {local:%H:%M}"
         d["day"] = _day_label(local.date())
         d["days_left"] = (local.date() - _today()).days
     return d

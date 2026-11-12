@@ -1,0 +1,157 @@
+# itslearning-blueprint (installeras och uppdateras automatiskt av integrationen)
+blueprint:
+  name: "itslearning: påminnelse om läxor och prov"
+  description: >-
+    En daglig sammanfattning av det som är på gång: prov, förhör, läxor och inlämningar
+    inom ett valfritt antal dagar. Kan också varna ett visst antal dagar före, t.ex.
+    "prov om 3 dagar". Skickas bara när det finns något att säga.
+  domain: automation
+  author: itslearning-integrationen
+  source_url: https://github.com/kakelakel/ITSlearning-Nassj-/blob/main/custom_components/itslearning/blueprints/itslearning_reminder.yaml
+  input:
+    when:
+      name: När
+      icon: mdi:clock-outline
+      input:
+        at_time:
+          name: Tid
+          default: "18:00:00"
+          selector:
+            time: {}
+        weekdays:
+          name: Veckodagar
+          default: [sun, mon, tue, wed, thu]
+          selector:
+            select:
+              multiple: true
+              options:
+                - { value: mon, label: "Måndag" }
+                - { value: tue, label: "Tisdag" }
+                - { value: wed, label: "Onsdag" }
+                - { value: thu, label: "Torsdag" }
+                - { value: fri, label: "Fredag" }
+                - { value: sat, label: "Lördag" }
+                - { value: sun, label: "Söndag" }
+    what:
+      name: Vad som tas med
+      icon: mdi:filter-outline
+      input:
+        days_ahead:
+          name: Dagar framåt
+          description: "1 = i morgon, 3 = de kommande tre dagarna."
+          default: 1
+          selector:
+            number: { min: 1, max: 14, mode: slider, unit_of_measurement: dagar }
+        match:
+          name: Vilka dagar
+          default: within
+          selector:
+            select:
+              options:
+                - { value: within, label: "Allt inom de dagarna" }
+                - { value: exactly, label: "Bara exakt så många dagar fram (t.ex. provvarning 3 dagar före)" }
+        include_today:
+          name: Ta med idag
+          description: Bra för en påminnelse på morgonen.
+          default: false
+          selector:
+            boolean: {}
+        categories:
+          name: Kategorier
+          default: [test, quiz, homework, assignment]
+          selector:
+            select:
+              multiple: true
+              mode: list
+              options:
+                - { value: test, label: "Prov" }
+                - { value: quiz, label: "Förhör" }
+                - { value: homework, label: "Läxa" }
+                - { value: assignment, label: "Inlämning" }
+                - { value: event, label: "Övriga händelser" }
+                - { value: lesson, label: "Lektionsplanering" }
+        include_overdue:
+          name: Ta med försenade uppgifter
+          default: false
+          selector:
+            boolean: {}
+    target:
+      name: Mottagare och text
+      icon: mdi:cellphone-message
+      input:
+        notify_action:
+          name: Notifieringsåtgärd
+          description: Till exempel notify.mobile_app_annas_telefon eller en notify-grupp.
+          default: notify.notify
+          selector:
+            text: {}
+        title:
+          name: Rubrik
+          default: Skolan
+          selector:
+            text: {}
+        entity_suffix:
+          name: Ändelse för andra barnet (valfritt)
+          description: Lämna tomt för första barnet, skriv _2 för det andra.
+          default: ""
+          selector:
+            text: {}
+
+mode: single
+
+triggers:
+  - trigger: time
+    at: !input at_time
+
+conditions:
+  - condition: time
+    weekday: !input weekdays
+
+variables:
+  sfx: !input entity_suffix
+  n: !input days_ahead
+  match: !input match
+  include_today: !input include_today
+  cats: !input categories
+  include_overdue: !input include_overdue
+  title_text: !input title
+  lines: >-
+    {% set emo = {'test': '📝', 'quiz': '🗣️', 'homework': '📚', 'assignment': '📤', 'event': '📅', 'lesson': '📖'} %}
+    {% set lab = {'test': 'Prov', 'quiz': 'Förhör', 'homework': 'Läxa', 'assignment': 'Inlämning', 'event': 'Händelse', 'lesson': 'Lektion'} %}
+    {% set evs = state_attr('sensor.itslearning_upcoming_events' ~ sfx, 'events') or [] %}
+    {% set tks = state_attr('sensor.itslearning_upcoming_tasks' ~ sfx, 'tasks') or [] %}
+    {% set pls = (state_attr('sensor.itslearning_plans_this_week' ~ sfx, 'plans') or [])
+               + (state_attr('sensor.itslearning_plans_next_week' ~ sfx, 'plans') or []) %}
+    {% set lo = 0 if include_today else 1 %}
+    {% set ns = namespace(items=[]) %}
+    {% for e in evs + tks + pls %}
+      {% set c = e.category | default('event') %}
+      {% set dl = e.days_left %}
+      {% if c in cats and dl is number
+            and ((match == 'exactly' and dl == n | int) or (match != 'exactly' and lo <= dl <= n | int)) %}
+        {% set when = e.day | default('') | capitalize %}
+        {% set t = e.time | default('') %}
+        {% set line = emo.get(c, '•') ~ ' ' ~ when ~ ': ' ~ lab.get(c, '') ~ ' ' ~ (e.subject or e.course or '')
+                      ~ ' – ' ~ (e.title or e.name) ~ (' (' ~ t ~ ')' if t else '') %}
+        {% set ns.items = ns.items + [{'d': dl, 'r': ['test','quiz','homework','assignment','event','lesson'].index(c) if c in ['test','quiz','homework','assignment','event','lesson'] else 9, 'line': line}] %}
+      {% endif %}
+    {% endfor %}
+    {% set ns2 = namespace(out=ns.items | sort(attribute='r') | sort(attribute='d') | map(attribute='line') | list) %}
+    {% if include_overdue %}
+      {% for t in state_attr('sensor.itslearning_overdue_tasks' ~ sfx, 'tasks') or [] %}
+        {% set ns2.out = ns2.out + ['⚠️ Försenad: ' ~ (t.subject or '') ~ ' – ' ~ t.title] %}
+      {% endfor %}
+    {% endif %}
+    {{ ns2.out }}
+
+actions:
+  - condition: template
+    value_template: "{{ lines | count > 0 }}"
+  - action: !input notify_action
+    data:
+      title: >-
+        {{ title_text }}{% if match == 'exactly' %} – om {{ n }} {{ 'dag' if n | int == 1 else 'dagar' }}{% elif n | int == 1 and not include_today %} – i morgon{% else %} – närmaste {{ n }} dagarna{% endif %}
+      message: "{{ lines | join('\n') }}"
+      data:
+        group: itslearning
+        tag: "itsl-reminder-{{ match }}-{{ n }}"

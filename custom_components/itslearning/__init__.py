@@ -41,11 +41,39 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     add_extra_js_url(hass, f"{CARD_URL}?v={version}")
 
 
+def _install_blueprints(config_dir: str) -> list[str]:
+    """Copy the bundled blueprints to config/blueprints/automation/itslearning/."""
+    from pathlib import Path
+
+    src = Path(__file__).parent / "blueprints"
+    dst = Path(config_dir) / "blueprints" / "automation" / "itslearning"
+    changed = []
+    for f in sorted(src.glob("*.yaml")):
+        target = dst / f.name
+        content = f.read_text(encoding="utf-8")
+        if target.exists():
+            current = target.read_text(encoding="utf-8")
+            if current == content or not current.startswith("# itslearning-blueprint"):
+                continue  # up to date, or edited by the user: leave it alone
+        dst.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        changed.append(f.name)
+    return changed
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    import logging
+
     from .sync import async_register_services
 
     async_register_services(hass)
     await _async_register_card(hass)
+    try:
+        changed = await hass.async_add_executor_job(_install_blueprints, hass.config.config_dir)
+        if changed:
+            logging.getLogger(__name__).info("itslearning: installerade blueprints %s", ", ".join(changed))
+    except OSError as err:
+        logging.getLogger(__name__).warning("itslearning: kunde inte installera blueprints: %s", err)
     return True
 
 
@@ -57,6 +85,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ItslearningConfigEntry) 
         tokens=Tokens.from_dict(entry.data.get(CONF_TOKENS)),
     )
     coordinator = ItslearningCoordinator(hass, entry, client)
+    await coordinator.tracker.async_load()
     try:
         await coordinator.async_config_entry_first_refresh()
     except Exception:
@@ -66,6 +95,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ItslearningConfigEntry) 
     entry.async_on_unload(client.close)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ItslearningConfigEntry) -> None:
+    from .tracker import NewItemTracker
+
+    await NewItemTracker(hass, entry.entry_id, entry.title).async_remove()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ItslearningConfigEntry) -> bool:

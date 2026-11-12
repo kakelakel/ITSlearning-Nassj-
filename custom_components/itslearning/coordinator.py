@@ -10,7 +10,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import CalendarItem, Course, ItslearningAuthError, ItslearningClient, ItslearningError, News, Plan, Task
+from .api import (
+    CalendarItem, Course, ItslearningAuthError, ItslearningClient, ItslearningError, News,
+    PersonalNotification, Plan, Task,
+)
 from .const import CONF_TOKENS, DEFAULT_SCAN_INTERVAL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,6 +28,7 @@ class ItslearningData:
     plans: list[Plan] = field(default_factory=list)
     news: list[News] = field(default_factory=list)
     courses: list[Course] = field(default_factory=list)
+    notifications: list[PersonalNotification] = field(default_factory=list)
 
 
 class ItslearningCoordinator(DataUpdateCoordinator[ItslearningData]):
@@ -35,6 +39,9 @@ class ItslearningCoordinator(DataUpdateCoordinator[ItslearningData]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, client: ItslearningClient) -> None:
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=DEFAULT_SCAN_INTERVAL, config_entry=entry)
         self.client = client
+        from .tracker import NewItemTracker
+
+        self.tracker = NewItemTracker(hass, entry.entry_id, entry.title)
         self._courses: list[Course] = []
         self._courses_at = 0.0
 
@@ -55,7 +62,10 @@ class ItslearningCoordinator(DataUpdateCoordinator[ItslearningData]):
             if not self._courses or time.monotonic() - self._courses_at > COURSES_TTL:
                 self._courses = await self._optional("kurser", self.client.fetch_courses(), self._courses)
                 self._courses_at = time.monotonic()
-            unread = await self._optional("notiser", self.client.fetch_unread_notifications(), None)
+            notifications = await self._optional(
+                "notiser", self.client.fetch_notifications(), prev.notifications if prev else None
+            )
+            unread = None if notifications is None else sum(1 for n in notifications if not n.is_read)
             events = await self._optional("kalendern", self.client.fetch_calendar(), prev.events if prev else [])
             plans = await self._optional("planer", self.client.fetch_plans(self._courses), prev.plans if prev else [])
             news = await self._optional("nyheter", self.client.fetch_news(), prev.news if prev else [])
@@ -76,6 +86,9 @@ class ItslearningCoordinator(DataUpdateCoordinator[ItslearningData]):
                 self.config_entry,
                 data={**self.config_entry.data, CONF_TOKENS: self.client.tokens.as_dict()},
             )
-        return ItslearningData(
-            tasks=tasks, unread_notifications=unread, events=events, plans=plans, news=news, courses=self._courses
+        data = ItslearningData(
+            tasks=tasks, unread_notifications=unread, events=events, plans=plans, news=news,
+            courses=self._courses, notifications=notifications or [],
         )
+        self.tracker.fire(self.tracker.process(data))
+        return data

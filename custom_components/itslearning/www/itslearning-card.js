@@ -7,7 +7,7 @@
  *
  * Every style option can be set in the visual editor or in YAML; see README.
  */
-const CARD_VERSION = "0.5.0";
+const CARD_VERSION = "0.6.0";
 
 /* ------------------------------------------------------------------ presets */
 const PRESETS = {
@@ -149,6 +149,7 @@ const CATEGORIES = {
   material:   { label: "Material",     icon: "mdi:paperclip",                    emoji: "📎", color: [0, 137, 123],   rank: 8 },
   bulletin:   { label: "Anslag",       icon: "mdi:bullhorn-outline",             emoji: "📣", color: [94, 53, 177],   rank: 9 },
   news:       { label: "Nyhet",        icon: "mdi:newspaper-variant-outline",    emoji: "📰", color: [96, 125, 139],  rank: 10 },
+  notification: { label: "Notis",      icon: "mdi:bell-outline",                 emoji: "🔔", color: [3, 169, 244],   rank: 11 },
 };
 const CATEGORY_KEYS = Object.keys(CATEGORIES);
 

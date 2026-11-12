@@ -253,7 +253,7 @@ def html_to_text(html: str | None) -> str:
 CATEGORY_LABELS = {
     "test": "Prov", "quiz": "Förhör", "homework": "Läxa", "assignment": "Inlämning",
     "event": "Händelse", "lesson": "Lektion", "area": "Arbetsområde", "material": "Material",
-    "bulletin": "Anslag", "news": "Nyhet",
+    "bulletin": "Anslag", "news": "Nyhet", "notification": "Notis",
 }
 AREA_MIN_DAYS = 4  # a plan spanning this many days or more is a work area, not a lesson
 
@@ -483,6 +483,42 @@ class News:
             "published": self.published.isoformat() if self.published else None,
             "author": self.author,
             "url": self.url,
+            "color": self.color,
+        }
+
+
+@dataclass
+class PersonalNotification:
+    """A personal itslearning notification (the bell): new assessment, message, comment …"""
+
+    id: int
+    text: str
+    type: str
+    published: datetime | None
+    author: str
+    url: str
+    is_read: bool
+    course: str = ""
+    color: str = ""
+
+    @property
+    def category(self) -> str:
+        return "notification"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "title": self.text[:200],
+            "text": self.text[:200],
+            "category": "notification",
+            "category_label": CATEGORY_LABELS["notification"],
+            "type": self.type,
+            "published": self.published.isoformat() if self.published else None,
+            "author": self.author,
+            "url": self.url,
+            "is_read": self.is_read,
+            "course": self.course,
+            "subject": subject_name(self.course) if self.course else "",
             "color": self.color,
         }
 
@@ -985,9 +1021,25 @@ class ItslearningClient:
         data = await self._get("/restapi/personal/tasks/v1/", {"PageIndex": 0, "PageSize": 100})
         return [_task_from_json(t) for t in (data or {}).get("EntityArray", [])]
 
+    async def fetch_notifications(self, count: int = 30) -> list[PersonalNotification]:
+        data = await self._get("/restapi/personal/notifications/v1/", {"PageIndex": 0, "PageSize": count})
+        out = []
+        for n in (data or {}).get("EntityArray", []):
+            by = n.get("PublishedBy") or {}
+            out.append(PersonalNotification(
+                id=int(n.get("NotificationId") or 0),
+                text=html_to_text(n.get("Text")),
+                type=str(n.get("Type") or ""),
+                published=parse_datetime(n.get("PublishedDate")),
+                author=str(by.get("FullName") or " ".join(x for x in (by.get("FirstName"), by.get("LastName")) if x)),
+                url=str(n.get("Url") or n.get("ContentUrl") or ""),
+                is_read=bool(n.get("IsRead", True)),
+                course=str(n.get("LocationTitle") or ""),
+            ))
+        return out
+
     async def fetch_unread_notifications(self) -> int:
-        data = await self._get("/restapi/personal/notifications/v1/", {"PageIndex": 0, "PageSize": 50})
-        return sum(1 for n in (data or {}).get("EntityArray", []) if not n.get("IsRead", True))
+        return sum(1 for n in await self.fetch_notifications(50) if not n.is_read)
 
     async def fetch_courses(self) -> list[Course]:
         data = await self._get("/restapi/personal/courses/v1/", {"PageIndex": 0, "PageSize": 100})
