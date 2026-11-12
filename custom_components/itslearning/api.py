@@ -84,6 +84,8 @@ class _PageParser(HTMLParser):
         self._link_text: list[str] = []
         self._in_title = False
         self.meta_refresh: str | None = None
+        self.text: list[str] = []
+        self._skip = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         a = {k.lower(): (v or "") for k, v in attrs}
@@ -100,6 +102,8 @@ class _PageParser(HTMLParser):
             self._link_text = []
         elif tag == "title":
             self._in_title = True
+        elif tag in ("script", "style"):
+            self._skip += 1
         elif tag == "meta" and a.get("http-equiv", "").lower() == "refresh":
             m = re.search(r"url\s*=\s*['\"]?([^'\";]+)", a.get("content", ""), re.I)
             if m:
@@ -113,12 +117,23 @@ class _PageParser(HTMLParser):
             self._link_href = None
         elif tag == "title":
             self._in_title = False
+        elif tag in ("script", "style") and self._skip:
+            self._skip -= 1
 
     def handle_data(self, data: str) -> None:
         if self._link_href is not None:
             self._link_text.append(data)
         if self._in_title:
             self.title += data
+        elif not self._skip and data.strip():
+            self.text.append(data.strip())
+
+    def forms_with_saml(self) -> bool:
+        return any(f.is_saml() for f in self.forms)
+
+    @property
+    def visible_text(self) -> str:
+        return " ".join(" ".join(self.text).split())
 
 
 def _short(url: str) -> str:
@@ -338,6 +353,7 @@ class ItslearningClient:
         url, html = await self._request("GET", start_url)
         password_sent = False
         federation_clicked = False
+        reauthorized = False
         seen: dict[str, int] = {}
         trail: list[str] = []
 
@@ -355,6 +371,15 @@ class ItslearningClient:
                 raise ItslearningConnectionError(
                     "Inloggningen fastnade i en loop på " + key + ". Steg: " + " → ".join(trail[-8:])
                 )
+
+            # 0) Logged in to itslearning but the OAuth context was lost (the
+            #    federated login runs "in a new window" for the app). Ask the
+            #    authorize endpoint again with the fresh session cookie.
+            if password_sent and "itslearning" in host and not page.forms_with_saml() and not reauthorized:
+                reauthorized = True
+                _LOGGER.debug("→ Inloggad i itslearning, begär OAuth-koden igen")
+                url, html = await self._request("GET", start_url)
+                continue
 
             # 1) Login form with a password field -> credentials.
             pw_form = next((f for f in page.forms if f.has_password()), None)
@@ -417,8 +442,11 @@ class ItslearningClient:
                     url, html = await self._submit(url, f, _form_fields(f))
                     continue
 
+            _LOGGER.debug("Sidans text: %s", page.visible_text[:400])
             if password_sent:
-                raise ItslearningAuthError(f"Inloggningen fastnade på {host} ({page.title.strip()})")
+                raise ItslearningAuthError(
+                    f"Inloggningen fastnade på {_short(url)} ({page.title.strip()}): {page.visible_text[:200]}"
+                )
             raise ItslearningConnectionError(f"Okänd sida i inloggningsflödet: {host} ({page.title.strip()})")
 
         raise ItslearningConnectionError("Inloggningsflödet tog för många steg")
